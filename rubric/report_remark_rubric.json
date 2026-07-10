@@ -1,0 +1,750 @@
+{
+  "rubric_name": "Report Remark Review Rubric",
+  "version": "1.1",
+  "purpose": "Review student report remarks for accuracy, professionalism, clarity, balance, safeguarding, consistency and usefulness. The reviewer identifies issues and reports them; it does not rewrite the remark. The teacher remains solely responsible for revising and approving the final remark.",
+
+  "settings": {
+    "allow_strengths_only": false,
+    "require_growth_point": true,
+    "require_closing": true,
+    "max_characters_including_spaces_and_line_breaks": 1000,
+    "line_breaks_count_as_characters": true,
+    "preferred_language_variant": "British Indian English",
+    "provide_rewritten_remark": false,
+    "teacher_makes_final_revision": true,
+    "pronouns_must_be_verified_against_roster": true,
+    "subject_capitalisation_style": "configurable_by_school",
+    "sport_capitalisation_style": "configurable_by_school",
+    "screen_time_reporting_authorised": false,
+    "e3_directive_repeat_threshold": 3
+  },
+
+  "constraints": {
+    "reviewer_must_not_rewrite_remark": true,
+    "reviewer_may_suggest_phrasing_direction_only_if_asked": true
+  },
+
+  "review_output_schema": {
+    "student_name": "string",
+    "status": [
+      "no_major_issues",
+      "minor_edits",
+      "needs_revision",
+      "critical_issue"
+    ],
+    "issues": [
+      {
+        "rule_id": "string",
+        "severity": "critical|required|warning",
+        "exact_phrase": "string",
+        "explanation": "string",
+        "teacher_action": "string",
+        "requires_record_verification": "boolean"
+      }
+    ],
+    "character_count": "integer",
+    "teacher_revision_required": "boolean"
+  },
+
+  "severity_levels": {
+    "critical": {
+      "description": "Must not be submitted until corrected.",
+      "triggers": [
+        "wrong student name",
+        "pronoun that contradicts verified roster data",
+        "confidential or sensitive information disclosed",
+        "diagnosis or medical disclosure",
+        "humiliating language",
+        "duplicate remark assigned to another student",
+        "serious factual inconsistency"
+      ]
+    },
+    "required": {
+      "description": "Teacher must review and correct.",
+      "triggers": [
+        "grammar or spelling affecting professionalism",
+        "unsupported academic claims",
+        "no actionable development point",
+        "contradiction",
+        "inaccurate programme or role name",
+        "excessive length",
+        "repeated paragraphs",
+        "harsh or inappropriate wording",
+        "pronoun correctness unverifiable against roster"
+      ]
+    },
+    "warning": {
+      "description": "Teacher should review and decide whether revision is needed.",
+      "triggers": [
+        "inflated language",
+        "generic praise",
+        "mild repetition",
+        "slightly vague advice",
+        "excessive wordiness",
+        "inconsistent but non-critical style"
+      ]
+    },
+    "none": {
+      "description": "No major issue.",
+      "criteria": [
+        "accurate and internally consistent",
+        "includes a specific strength",
+        "includes a useful development point where required",
+        "professional language",
+        "avoids sensitive or exaggerated claims",
+        "grammatically correct",
+        "follows school naming conventions",
+        "within length limit"
+      ]
+    }
+  },
+
+  "categories": [
+    {
+      "id": "A1",
+      "section": "Required Content",
+      "title": "Clear strength",
+      "severity": "required",
+      "policy": "Include at least one specific, observable strength, supported by an example where appropriate. An example is not strictly required if the strength itself is already clearly observable.",
+      "detection": {
+        "type": "semantic",
+        "notes": "Detect whether the remark names an observable trait/skill/behaviour rather than only a generic evaluative label."
+      },
+      "exceptions": ["Strength is already specific and observable without a supporting example"],
+      "examples": {
+        "pass": "She asks thoughtful questions and applies feedback carefully to her written work.",
+        "flag": "She is a wonderful student.",
+        "flag_reason": "Generic praise, no observable strength identified."
+      },
+      "teacher_message": "Add a specific, observable strength; include a brief example if the strength isn't already self-evident."
+    },
+    {
+      "id": "A2",
+      "section": "Required Content",
+      "title": "Evidence or example",
+      "severity": "required",
+      "policy": "Support important claims with a specific observation or example (participation, work habits, revision, written responses, projects, presentations, assemblies, Sports Day, Khoj, class responsibilities, clubs, performances, group work, changes over term).",
+      "detection": {"type": "semantic", "notes": "Flag broad evaluative claims with no supporting observation."},
+      "exceptions": [],
+      "examples": {
+        "pass": "His growing confidence was evident when he presented his ideas during the class assembly.",
+        "flag": "He has developed exceptional leadership qualities.",
+        "flag_reason": "Broad and unsupported claim."
+      },
+      "teacher_message": "Add a concrete example or observation to support this claim."
+    },
+    {
+      "id": "A3",
+      "section": "Required Content",
+      "title": "Progress over time",
+      "severity": "warning",
+      "policy": "Where relevant, identify a genuine change observed during the term or year.",
+      "detection": {"type": "semantic", "notes": "Flag sweeping improvement claims covering 'every area' with no specific dimension named."},
+      "exceptions": [],
+      "examples": {
+        "pass": "She now participates more frequently in whole-class discussions.",
+        "flag": "She has improved tremendously in every area.",
+        "flag_reason": "Overly broad and unsupported."
+      },
+      "teacher_message": "Name the specific area of change rather than an overall improvement."
+    },
+    {
+      "id": "A4",
+      "section": "Required Content",
+      "title": "Actionable area for development",
+      "severity": "required",
+      "policy": "Include at least one specific and actionable growth point stating what the student should practise or improve (revision, proofreading, careful reading, sustained attention, timely completion, handwriting, organising resources, participation, questioning, detail, spelling/written expression, following instructions, collaborative listening). The fuller issue/action/benefit structure (see E1) is preferred but not required for this check.",
+      "detection": {"type": "semantic", "notes": "Flag advice with no concrete, nameable action."},
+      "exceptions": ["settings.require_growth_point is false"],
+      "examples": {
+        "pass": "Reviewing her work before submission will help her identify spelling and punctuation errors.",
+        "flag": "She needs to work harder.",
+        "flag_reason": "Vague, no specified action."
+      },
+      "teacher_message": "State what the student should specifically practise or improve."
+    },
+    {
+      "id": "A5",
+      "section": "Required Content",
+      "title": "Balanced content",
+      "severity": "required",
+      "policy": "Present a fair picture: not all praise or all criticism, no overstatement, no repetition of the same point.",
+      "detection": {"type": "structural_and_semantic", "notes": "Check ratio and repetition of praise vs. growth content."},
+      "exceptions": ["settings.allow_strengths_only is true, in which case a strengths-only remark is not flagged"],
+      "examples": {},
+      "teacher_message": "Balance the remark with both a strength and a growth point, unless strengths-only remarks are permitted for this report."
+    },
+    {
+      "id": "B1",
+      "section": "Accuracy",
+      "title": "Correct student identity",
+      "severity": "critical",
+      "policy": "The student's name must be correct and used consistently throughout; no other student's name may appear; check for duplicate students/remarks.",
+      "detection": {"type": "exact_match", "notes": "Compare all name mentions against the roster record for this remark."},
+      "exceptions": [],
+      "examples": {"flag": "Aaditya ... We look forward to seeing Aarav continue to progress."},
+      "teacher_message": "Correct the student name error before this remark can be submitted."
+    },
+    {
+      "id": "B2",
+      "section": "Accuracy",
+      "title": "Pronoun consistency",
+      "severity_conditions": [
+        {"condition": "pronoun contradicts verified roster data", "severity": "critical"},
+        {"condition": "pronoun correctness cannot be verified against roster", "severity": "required", "teacher_action": "Verify pronouns against the class roster."}
+      ],
+      "policy": "Pronouns must be internally consistent and match verified roster information. Do not infer gender from the student's name.",
+      "detection": {"type": "consistency_check_and_roster_lookup", "notes": "Do not use name-based gender inference as a source of truth."},
+      "exceptions": [],
+      "examples": {"flag": "Aaditya ... We look forward to seeing her continue to grow."},
+      "teacher_message": "Confirm the correct pronoun against the class roster before submitting."
+    },
+    {
+      "id": "B3",
+      "section": "Accuracy",
+      "title": "Academic claims",
+      "severity": "required",
+      "policy": "Claims such as 'grades have improved', 'performance has declined', 'performs well across all subjects', 'exceeds grade-level expectations', 'consistently produces excellent work', 'demonstrates strong achievement in [subject]', 'has shown significant academic growth' must be supported by grades, work samples or teacher records. This includes general/unsupported academic claims, not only improved/declined statements.",
+      "detection": {"type": "semantic_and_phrase_match", "terms": ["grades have improved", "performance has declined", "performs well across all subjects", "exceeds grade-level expectations", "consistently produces excellent work", "demonstrates strong achievement", "has shown significant academic growth"]},
+      "exceptions": ["Claim is directly supported by cited grades/work samples/records"],
+      "examples": {},
+      "teacher_message": "Verify against academic records, or soften the claim if unverifiable.",
+      "requires_record_verification": true
+    },
+    {
+      "id": "B4",
+      "section": "Accuracy",
+      "title": "Activities, awards and responsibilities",
+      "severity": "required",
+      "policy": "Verify claims concerning medals, trophies, competitions, teams, clubs, Student Council, Eco Club, LEAD Collective, 'Bully to Buddy', class responsibilities, performances, leadership roles, published work, external achievements. Do not assume correctness merely because the claim appears in the remark.",
+      "detection": {"type": "record_verification", "notes": "Cross-check named activities/awards/roles against school records."},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Confirm this activity/award/role against school records before submitting.",
+      "requires_record_verification": true
+    },
+    {
+      "id": "B5",
+      "section": "Accuracy",
+      "title": "Attendance and missed work",
+      "severity_conditions": [
+        {"condition": "private/medical/family reasons for absence are disclosed", "severity": "critical"},
+        {"condition": "attendance is described in unnecessary detail but no private reason is disclosed", "severity": "required"},
+        {"condition": "attendance is mentioned only insofar as it affects learning continuity", "severity": "none"}
+      ],
+      "policy": "Attendance may be mentioned where it directly affects learning continuity. Never state private reasons for absence unless authorised.",
+      "detection": {"type": "semantic", "notes": "Distinguish a general continuity statement from disclosure of a private/medical/family reason."},
+      "exceptions": ["Disclosure explicitly authorised by the school for this report format"],
+      "examples": {
+        "pass": "More regular attendance will support continuity in her learning.",
+        "flag": "Her repeated absence due to family and medical issues has affected her work.",
+        "flag_reason": "Contains private personal information."
+      },
+      "teacher_message": "Remove the private/medical/family reason; keep only the learning-continuity statement if needed."
+    },
+    {
+      "id": "C0",
+      "section": "Professional Tone",
+      "title": "Observable behaviour, not personality judgement",
+      "severity": "required",
+      "policy": "The remark should describe observable school behaviour and learning, not fixed personality traits or character judgements.",
+      "detection": {"type": "semantic", "notes": "Flag trait labels ('is lazy', 'is shy') in place of behaviour descriptions."},
+      "exceptions": [],
+      "examples": {
+        "pass": "He submits work on time and responds well to feedback.",
+        "flag": "He is lazy and a bit stubborn.",
+        "flag_reason": "Labels the student's character rather than describing observable behaviour."
+      },
+      "teacher_message": "Rephrase as an observable behaviour rather than a character label."
+    },
+    {
+      "id": "C1",
+      "section": "Professional Tone",
+      "title": "Objective and school-appropriate language",
+      "severity": "warning",
+      "policy": "Use language based on observable behaviour and learning.",
+      "detection": {
+        "type": "phrase_match",
+        "preferred_terms": ["participates actively", "submits work on time", "seeks clarification", "contributes ideas", "responds to feedback", "collaborates with peers", "benefits from reminders", "is developing greater consistency"],
+        "avoid_terms": ["naughty", "cute", "sweet", "beloved", "mischievous", "lazy", "stubborn", "difficult child", "attention-seeking", "spoilt", "obedient"]
+      },
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Replace with an observable-behaviour phrase from the preferred list."
+    },
+    {
+      "id": "C2",
+      "section": "Professional Tone",
+      "title": "Avoid casual or conversational phrasing",
+      "severity": "warning",
+      "policy": "Avoid casual, conversational phrasing in a formal report remark.",
+      "detection": {"type": "phrase_match", "terms": ["go for it", "keep shining", "tucked into tasks", "brings lively vibes", "in his own world", "gets charged up", "a joy to teach", "heart of the class", "all the right ingredients", "unlock brilliance"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Replace casual phrasing with a more formal equivalent."
+    },
+    {
+      "id": "C3",
+      "section": "Professional Tone",
+      "title": "Avoid overly sentimental language",
+      "severity": "warning",
+      "policy": "Avoid language that sounds personal, emotional or promotional rather than professional. A restrained closing is preferred.",
+      "detection": {"type": "phrase_match", "terms": ["makes everyone proud", "she will always be remembered", "everyone loves him", "we adore her", "she lights up every room", "he is destined for greatness"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Replace with a restrained, professional statement."
+    },
+    {
+      "id": "C4",
+      "section": "Professional Tone",
+      "title": "Avoid authority-heavy language",
+      "severity": "warning",
+      "policy": "Avoid framing development primarily in terms of obedience to authority.",
+      "detection": {
+        "type": "phrase_match",
+        "avoid_terms": ["respectful towards authority", "must obey teachers", "should accept authority", "dialogue with authority"],
+        "preferred_terms": ["interacts respectfully with teachers and peers", "follows classroom expectations", "responds constructively to guidance", "follows agreed routines"]
+      },
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Reframe using collaborative, non-authority-based phrasing."
+    },
+    {
+      "id": "D1",
+      "section": "Inflated or Unsupported Language",
+      "title": "Excessive praise",
+      "severity": "warning",
+      "policy": "Avoid unsupported inflated praise.",
+      "detection": {"type": "semantic_and_phrase_match", "terms": ["exceptional", "outstanding", "remarkable", "brilliant", "perfect", "exemplary", "extraordinary", "academic excellence", "true excellence", "immense talent", "tremendous growth", "greater heights", "ideal learner", "future thought leader", "destined for success", "excels in every area", "surpasses others"]},
+      "exceptions": ["Supported by specific, verified evidence"],
+      "examples": {},
+      "teacher_message": "Review whether the praise is supported by evidence; otherwise use a more measured term."
+    },
+    {
+      "id": "D2",
+      "section": "Inflated or Unsupported Language",
+      "title": "Generic motivational endings",
+      "severity": "warning",
+      "policy": "Avoid generic, unearned motivational endings.",
+      "detection": {
+        "type": "phrase_match",
+        "avoid_terms": ["Keep shining!", "Reach for the stars!", "She will achieve great success.", "He will unlock his full potential.", "She is destined for excellence.", "We know he will make everyone proud."],
+        "preferred_terms": ["This will support her continued progress.", "With consistent effort, he can strengthen this area further.", "She is well placed to continue developing these skills.", "We wish him well for Grade 7."]
+      },
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Replace with a restrained, specific closing statement."
+    },
+    {
+      "id": "D3",
+      "section": "Inflated or Unsupported Language",
+      "title": "Claims about potential",
+      "severity": "warning",
+      "policy": "Avoid relying heavily on unobservable 'potential'.",
+      "detection": {"type": "semantic", "notes": "Flag references to unrealised or true potential without an observable basis."},
+      "exceptions": [],
+      "examples": {
+        "flag": "He is not performing according to his true potential.",
+        "pass": "Greater consistency in completing tasks will help his work reflect his understanding more accurately."
+      },
+      "teacher_message": "Reframe potential claims in terms of an observable action and outcome."
+    },
+    {
+      "id": "E1",
+      "section": "Development Points",
+      "title": "Specific and practical",
+      "severity": "warning",
+      "policy": "Where feasible, growth points should identify the observable issue, the action the student can take, and the expected learning benefit.",
+      "detection": {"type": "structural", "notes": "This is the fuller structural test; A4 is the minimum pass/fail check."},
+      "exceptions": [],
+      "examples": {
+        "pass": "Reading questions carefully and reviewing answers before submission will help reduce avoidable errors.",
+        "flag": "She should become more serious."
+      },
+      "teacher_message": "Where possible, add the expected benefit of taking this action."
+    },
+    {
+      "id": "E2",
+      "section": "Development Points",
+      "title": "Reasonable number of development points",
+      "severity": "required",
+      "policy": "A remark should generally contain no more than two or three priority areas.",
+      "detection": {"type": "count", "notes": "Count distinct concern areas: attendance, handwriting, focus, emotional regulation, peer relationships, spelling, organisation, reading, submission, self-confidence, etc."},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Reduce to two or three priority development areas."
+    },
+    {
+      "id": "E3",
+      "section": "Development Points",
+      "title": "Avoid repeated directives",
+      "severity": "warning",
+      "policy": "Avoid overuse of directive language. A single instance of 'must', 'needs to', 'should' or 'has to' is not itself an issue; flag only when these are repeated, harsh in combination, or used in an overly directive tone throughout the remark.",
+      "detection": {
+        "type": "frequency_and_semantic",
+        "terms": ["must", "needs to", "should", "has to"],
+        "threshold": "flag when the count of these terms in one remark meets or exceeds settings.e3_directive_repeat_threshold, or when combined with harsh phrasing"
+      },
+      "exceptions": ["A single occurrence with otherwise constructive tone"],
+      "examples": {
+        "preferred_terms": ["would benefit from", "is encouraged to", "continuing to practise", "developing a routine for", "greater attention to", "regular revision will support"]
+      },
+      "teacher_message": "Vary the directive phrasing; this remark repeats 'must/needs to/should' language."
+    },
+    {
+      "id": "E4",
+      "section": "Development Points",
+      "title": "Avoid vague counselling advice",
+      "severity": "critical",
+      "policy": "Growth points should stay within classroom/academic responsibility; avoid advice that strays into personal/emotional counselling.",
+      "detection": {"type": "phrase_match", "terms": ["love yourself", "accept yourself as you are", "confide in your parents", "choose better friends", "build emotional strength", "practise inner healing", "manage racing thoughts"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Convert this into an observable, school-based action rather than personal counselling advice."
+    },
+    {
+      "id": "F1",
+      "section": "Safeguarding, Privacy and Sensitivity",
+      "title": "Medical and diagnostic information",
+      "severity": "critical",
+      "policy": "Do not include medical diagnoses, mental-health conditions, therapy, speech therapy, counselling details, medication, doctor's recommendations, special-needs details, or confidential intervention programmes.",
+      "detection": {"type": "semantic", "notes": "Flag any disclosure of medical/therapeutic/diagnostic content."},
+      "exceptions": ["School has explicitly authorised this content for the given report format"],
+      "examples": {},
+      "teacher_message": "Remove this medical/diagnostic content; it may only appear with explicit school authorisation."
+    },
+    {
+      "id": "F2",
+      "section": "Safeguarding, Privacy and Sensitivity",
+      "title": "Clinical or diagnostic wording",
+      "severity": "critical",
+      "policy": "Avoid clinical/diagnostic terminology; use observable behaviour instead.",
+      "detection": {"type": "phrase_match", "terms": ["executive dysfunction", "emotionally dependent", "dysregulated", "clinically anxious", "attention deficit", "sensory issues", "behavioural disorder"]},
+      "exceptions": [],
+      "examples": {"pass": "He benefits from reminders to return his attention to the task."},
+      "teacher_message": "Replace clinical wording with an observable-behaviour description."
+    },
+    {
+      "id": "F3",
+      "section": "Safeguarding, Privacy and Sensitivity",
+      "title": "Personal and family matters",
+      "severity": "critical",
+      "policy": "Do not mention family relationships, parental wishes, comparisons with parents, family travel reasons, home conflicts, financial circumstances, another sibling's needs, or private conversations with parents.",
+      "detection": {"type": "semantic", "notes": "Flag any content describing home/family circumstances."},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Remove this family/personal detail; keep the remark focused on school learning and behaviour."
+    },
+    {
+      "id": "F4",
+      "section": "Safeguarding, Privacy and Sensitivity",
+      "title": "Personal habits outside school",
+      "severity": "required",
+      "policy": "Avoid comments on personal hygiene, eating habits, sleep, clothing, body image, screen time, or household routines. A report remark should normally remain focused on school learning and behaviour.",
+      "detection": {"type": "semantic", "notes": "Screen time is treated as an outside-school personal habit unless authorised."},
+      "exceptions": ["settings.screen_time_reporting_authorised is true and digital habits are formally part of this school's reporting format"],
+      "examples": {},
+      "teacher_message": "Remove this personal-habit reference unless the school has authorised it for this report."
+    },
+    {
+      "id": "F5",
+      "section": "Safeguarding, Privacy and Sensitivity",
+      "title": "Humiliating or embarrassing language",
+      "severity": "critical",
+      "policy": "Avoid phrases likely to shame the student.",
+      "detection": {"type": "phrase_match", "terms": ["negative attention-seeking", "causes disruption for everyone", "behaves badly", "is immature", "has no self-control", "is careless and lazy", "acts foolishly", "is socially awkward"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Remove or rephrase this potentially shaming language."
+    },
+    {
+      "id": "G1",
+      "section": "Equity and Fairness",
+      "title": "No comparison with others",
+      "severity": "critical",
+      "policy": "Avoid comparisons with classmates, siblings, parents, age peers, or 'average students'.",
+      "detection": {"type": "semantic", "notes": "Flag any relative-comparison construction against another named/unnamed person or group."},
+      "exceptions": [],
+      "examples": {
+        "flag": ["She performs better than most students in the class.", "Much like her mother, she is highly creative."]
+      },
+      "teacher_message": "Remove the comparison; describe the student's performance on its own terms."
+    },
+    {
+      "id": "G2",
+      "section": "Equity and Fairness",
+      "title": "Avoid superiority claims",
+      "severity": "warning",
+      "policy": "Avoid framing the student as superior to peers.",
+      "detection": {"type": "phrase_match", "terms": ["sets him apart", "rare for her age", "surpasses others", "better than peers", "the best student", "a benchmark for others"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Reframe without an implicit ranking against peers."
+    },
+    {
+      "id": "G3",
+      "section": "Equity and Fairness",
+      "title": "Avoid stereotypes",
+      "severity": "critical",
+      "policy": "Do not make assumptions based on gender, culture, language background, disability, personality type, or family background.",
+      "detection": {"type": "semantic", "notes": "Flag generalisations tied to a protected or identity characteristic."},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Remove the assumption; describe only what was directly observed."
+    },
+    {
+      "id": "H1",
+      "section": "Internal Consistency",
+      "title": "No contradiction",
+      "severity": "required",
+      "policy": "Flag remarks that describe the same quality as both a strength and a weakness without context.",
+      "detection": {"type": "consistency_check", "notes": "Acceptable only if the remark explains a change over time or a specific context."},
+      "exceptions": ["Remark explicitly explains a change over time or a specific context"],
+      "examples": {"flag": "She consistently remains focused throughout lessons. / She needs frequent reminders to focus during lessons."},
+      "teacher_message": "Resolve the contradiction, or add context explaining the change."
+    },
+    {
+      "id": "H2",
+      "section": "Internal Consistency",
+      "title": "No duplicated content",
+      "severity": "required",
+      "policy": "Flag repeated paragraphs, repeated sentences, the same growth point stated twice, copied closings, or two identical remarks assigned to different students.",
+      "detection": {"type": "duplication_check"},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Remove the duplicated content."
+    },
+    {
+      "id": "H3",
+      "section": "Internal Consistency",
+      "title": "Correct logical connectors",
+      "severity": "warning",
+      "policy": "Check that connective words (additionally, however, although, while, moving forward, at the same time) are used logically. Do not use 'Additionally' to introduce the first and only development point.",
+      "detection": {"type": "structural", "notes": "Check connector usage against the surrounding sentence structure."},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Correct the logical connector; it does not match the surrounding sentence structure."
+    },
+    {
+      "id": "I1",
+      "section": "Language and Mechanics",
+      "title": "Grammar",
+      "severity": "required",
+      "policy": "Check subject-verb agreement, singular/plural forms, articles, verb tense, sentence structure, pronoun agreement, incomplete sentences, run-on sentences.",
+      "detection": {"type": "grammar_check"},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Correct the grammar issue identified."
+    },
+    {
+      "id": "I2",
+      "section": "Language and Mechanics",
+      "title": "Spelling",
+      "severity": "required",
+      "policy": "Check all spelling, including student names and school terminology.",
+      "detection": {"type": "spellcheck", "commonly_misspelled": ["demeanour", "independent", "constructive", "noticeable", "achievements", "sportsmanship", "organisational", "participated", "friendship", "opportunity"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Correct the spelling error identified."
+    },
+    {
+      "id": "I3",
+      "section": "Language and Mechanics",
+      "title": "Punctuation and spacing",
+      "severity": "required",
+      "policy": "Check for missing spaces after full stops, double spaces, comma splices, incorrect apostrophes, excessive semicolons, unnecessary quotation marks, missing final punctuation, accidental characters or formatting marks.",
+      "detection": {"type": "mechanical_check"},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Correct the punctuation/spacing issue identified."
+    },
+    {
+      "id": "I4",
+      "section": "Language and Mechanics",
+      "title": "Common usage corrections",
+      "severity": "warning",
+      "policy": "Apply standard school-usage corrections.",
+      "detection": {
+        "type": "phrase_match",
+        "corrections": {
+          "work ethics": "work ethic",
+          "ask doubts": "seek clarification",
+          "dedicatedly": "with dedication",
+          "well capable of": "able to",
+          "progress further": "make further progress",
+          "sportsman spirit": "sportsmanship",
+          "very social": "sociable",
+          "organisation skills": "organisational skills",
+          "spellings": "spelling (unless school intentionally uses 'spellings')",
+          "written expressions (general skill)": "written expression"
+        }
+      },
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Apply the preferred usage form."
+    },
+    {
+      "id": "I5",
+      "section": "Language and Mechanics",
+      "title": "British/Indian school English",
+      "severity": "warning",
+      "policy": "Use one spelling system consistently, per settings.preferred_language_variant.",
+      "detection": {"type": "spellcheck", "preferred_forms": ["organisation", "organised", "behaviour", "fulfil", "programme", "practise (verb)", "practice (noun)", "recognise", "minimise", "emphasise"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Use the school's preferred spelling variant consistently."
+    },
+    {
+      "id": "J1",
+      "section": "School Naming and Capitalisation",
+      "title": "Programme names",
+      "severity": "required",
+      "policy": "Use formal programme names consistently, including required punctuation.",
+      "detection": {
+        "type": "exact_match",
+        "canonical_forms": [
+          {"display": "\"Bully to Buddy\"", "requires_quotation_marks": true},
+          {"display": "LEAD Collective", "requires_quotation_marks": false},
+          {"display": "Eco Club", "requires_quotation_marks": false},
+          {"display": "Student Council", "requires_quotation_marks": false}
+        ]
+      },
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Use the canonical programme name, including quotation marks where required."
+    },
+    {
+      "id": "J2",
+      "section": "School Naming and Capitalisation",
+      "title": "Khoj",
+      "severity": "required",
+      "policy": "Use 'Khoj' consistently.",
+      "detection": {"type": "exact_match", "canonical_form": "Khoj", "avoid_forms": ["KHOJ", "khoj", "'Khoj' (unless quotation marks are official style)"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Correct to the canonical form 'Khoj'."
+    },
+    {
+      "id": "J3",
+      "section": "School Naming and Capitalisation",
+      "title": "Subjects",
+      "severity": "warning",
+      "policy": "Capitalise formal subject names consistently, per settings.subject_capitalisation_style. Do not capitalise general, non-subject uses.",
+      "detection": {"type": "exact_match", "configurable": true, "reference_forms": ["Mathematics", "English", "Hindi", "Sanskrit", "Science", "Social Science", "Expedition", "Module", "Digital Literacy", "Physical Education", "Visual Arts", "Performing Arts"]},
+      "exceptions": ["School has configured a different capitalisation style for this setting"],
+      "examples": {},
+      "teacher_message": "Apply the school's configured subject-capitalisation style consistently."
+    },
+    {
+      "id": "J4",
+      "section": "School Naming and Capitalisation",
+      "title": "Sports and activities",
+      "severity": "warning",
+      "policy": "Follow one school-wide capitalisation style consistently, per settings.sport_capitalisation_style.",
+      "detection": {"type": "exact_match", "configurable": true, "reference_forms": ["Cricket", "Football", "Basketball", "Swimming", "Table Tennis", "Track and Field", "Volleyball", "Karate", "Yoga"]},
+      "exceptions": ["School has configured a different capitalisation style for this setting"],
+      "examples": {},
+      "teacher_message": "Apply the school's configured sport-capitalisation style consistently."
+    },
+    {
+      "id": "J5",
+      "section": "School Naming and Capitalisation",
+      "title": "Events and roles",
+      "severity": "warning",
+      "policy": "Capitalise formal event/role names consistently; generic descriptions remain lowercase.",
+      "detection": {"type": "exact_match", "canonical_forms": ["Sports Day", "Class Assembly", "Cyber Safety Ambassador", "Transition In-Charge", "Event Management Team"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Use the canonical capitalisation for this event or role name."
+    },
+    {
+      "id": "K1",
+      "section": "Length and Readability",
+      "title": "Character limit",
+      "severity": "required",
+      "policy": "Maximum settings.max_characters_including_spaces_and_line_breaks characters, including spaces and line breaks.",
+      "detection": {"type": "count", "max_characters": 1000, "line_breaks_counted": true},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Shorten the remark to fit within the character limit."
+    },
+    {
+      "id": "K2",
+      "section": "Length and Readability",
+      "title": "Recommended length",
+      "severity": "warning",
+      "policy": "Aim for approximately 100-150 words; exact length may vary provided the remark stays clear and within the character limit.",
+      "detection": {"type": "count", "recommended_word_count": "100-150"},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Consider trimming or expanding to the recommended word range."
+    },
+    {
+      "id": "K3",
+      "section": "Length and Readability",
+      "title": "Readability",
+      "severity": "warning",
+      "policy": "Flag remarks that are hard to read.",
+      "detection": {"type": "semantic_and_structural", "flags": ["very long sentences", "reads like a list of praise", "excessive repetition of student's name", "several unrelated ideas in one sentence", "overly formal or complicated language", "too many adjectives", "substantially longer than other remarks"]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Simplify sentence structure or reduce repetition/adjective density."
+    },
+    {
+      "id": "L1",
+      "section": "Closing Statements",
+      "title": "Preferred closing",
+      "severity": "warning",
+      "policy": "The closing should be brief, professional and restrained. A closing is required only if settings.require_closing is true.",
+      "detection": {"type": "phrase_match", "preferred_examples": [
+        "With continued effort, she is well placed to make steady progress.",
+        "Regular practice will support his continued development.",
+        "We wish her well for Grade 7.",
+        "We wish him continued progress in the next academic year."
+      ]},
+      "exceptions": ["settings.require_closing is false"],
+      "examples": {},
+      "teacher_message": "Add a brief, restrained closing statement."
+    },
+    {
+      "id": "L2",
+      "section": "Closing Statements",
+      "title": "Avoid",
+      "severity": "warning",
+      "policy": "Avoid effusive or promotional closings.",
+      "detection": {"type": "phrase_match", "terms": [
+        "Keep shining!",
+        "Make everyone proud!",
+        "Reach greater heights!",
+        "He will certainly excel!",
+        "She is destined for success!",
+        "Unlock your brilliance!",
+        "We look forward to seeing you become a star!"
+      ]},
+      "exceptions": [],
+      "examples": {},
+      "teacher_message": "Replace with a restrained closing from the preferred list."
+    }
+  ],
+
+  "final_checklist_reference": [
+    "Student's name is correct",
+    "Pronouns are correct and consistent, or flagged for roster verification",
+    "Remark contains at least one specific, observable strength, supported by an example where appropriate",
+    "Important claims are supported by evidence",
+    "Academic claims (improved, declined, or general such as 'performs well across all subjects') match records",
+    "Remark includes at least one specific and actionable growth point stating what the student should practise or improve",
+    "Growth point is not vague or overly personal",
+    "Remark is balanced — not all praise or all criticism, unless allow_strengths_only is enabled",
+    "Remark describes observable school behaviour, not personality judgements",
+    "No sensitive or confidential information disclosed without authorisation",
+    "Language is professional and non-judgemental",
+    "No exaggerated or promotional language",
+    "No contradictions or repeated sentences",
+    "School programmes, subjects, sports and roles are written per the school's configured style",
+    "Spelling, grammar, punctuation and spacing have been checked",
+    "Remark is within the character limit, including line breaks",
+    "Closing is present (if required) and is brief and professional",
+    "Reviewer has not rewritten the remark; final correction is made by the teacher"
+  ]
+}

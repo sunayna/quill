@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quill</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f5f7fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;
+  --critical:#9f1239;--required:#b45309;--warning:#a16207;--pass:#166534;--blue:#1d4ed8;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+button,input,select,textarea{font:inherit}
+header{height:64px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:10}
+.brand{font-weight:700}.header-actions{display:flex;gap:12px;align-items:center}
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 64px)}
+nav{background:#fff;border-right:1px solid var(--line);padding:18px 12px}
+.navbtn{width:100%;text-align:left;border:0;background:transparent;padding:11px 12px;border-radius:8px;margin:3px 0;cursor:pointer;color:var(--ink)}
+.navbtn.active,.navbtn:hover{background:#eef3ff;color:var(--blue)}
+main{padding:24px;max-width:1400px;width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.grid{display:grid;gap:16px}
+.grid-2{grid-template-columns:1fr 1fr}
+.grid-4{grid-template-columns:repeat(4,1fr)}
+label{font-size:13px;font-weight:600;display:block;margin-bottom:6px}
+input,select,textarea{border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff}
+textarea{width:100%;min-height:170px;line-height:1.45}
+.primary{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 15px;cursor:pointer}
+.secondary{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 15px;cursor:pointer}
+.danger{background:#fff1f2;color:var(--critical);border:1px solid #fecdd3}
+.metric{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px}
+.metric strong{font-size:24px;display:block}
+.muted{color:var(--muted);font-size:13px}
+.hidden{display:none!important}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700}
+.badge-critical{background:#ffe4e6;color:var(--critical)}
+.badge-required{background:#ffedd5;color:var(--required)}
+.badge-warning{background:#fef9c3;color:var(--warning)}
+.badge-pass{background:#dcfce7;color:var(--pass)}
+.issue{border-left:4px solid #cbd5e1;padding:12px 14px;background:#f8fafc;border-radius:8px;margin:10px 0}
+.issue.critical{border-color:var(--critical)}
+.issue.required{border-color:var(--required)}
+.issue.warning{border-color:var(--warning)}
+.issue-title{display:flex;justify-content:space-between;gap:12px}
+.breadcrumb{font-size:13px;color:var(--muted);margin-bottom:14px}
+.link{color:var(--blue);cursor:pointer;text-decoration:none}
+.toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}
+.progress{height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden}
+.progress > div{height:100%;background:var(--blue)}
+.notice{background:#eff6ff;border:1px solid #bfdbfe;padding:12px;border-radius:8px}
+pre{white-space:pre-wrap}
+@media(max-width:900px){.shell{grid-template-columns:1fr}nav{display:none}.grid-2,.grid-4{grid-template-columns:1fr}main{padding:14px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Quill <span class="muted">Prototype</span></div>
+  <div class="header-actions">
+    <select id="viewSwitcher">
+      <option value="teacher">Teacher view</option>
+      <option value="admin">Administrator view</option>
+    </select>
+    <span class="muted" id="currentUser">Priya Sharma</span>
+  </div>
+</header>
+<div class="shell">
+<nav id="teacherNav">
+  <button class="navbtn active" data-page="myReviews">My reviews</button>
+  <button class="navbtn" data-page="upload">Upload remarks</button>
+  <button class="navbtn" data-page="submitted">Submitted</button>
+</nav>
+<nav id="adminNav" class="hidden">
+  <button class="navbtn active" data-page="adminDashboard">Dashboard</button>
+  <button class="navbtn" data-page="allReviews">All reviews</button>
+  <button class="navbtn" data-page="users">Users & access</button>
+  <button class="navbtn" data-page="rubric">Rubric</button>
+</nav>
+<main>
+<section id="myReviews" class="page">
+  <div class="toolbar"><div><h1>My reviews</h1><div class="muted">Continue an existing review or upload a new class file.</div></div><button class="primary" onclick="showPage('upload')">Upload new spreadsheet</button></div>
+  <div id="reviewCards"></div>
+</section>
+
+<section id="upload" class="page hidden">
+  <div class="breadcrumb"><span class="link" onclick="showPage('myReviews')">My reviews</span> › Upload remarks</div>
+  <div class="card">
+    <h1>Upload remarks</h1>
+    <div class="grid grid-2">
+      <div><label>Class / section</label><input id="className" value="Grade 6A" /></div>
+      <div><label>Term</label><input id="termName" value="Term 2" /></div>
+    </div>
+    <div style="margin-top:16px"><label>Spreadsheet</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
+    <div class="notice" style="margin-top:16px">Expected columns: <b>Student Name</b>, <b>Pronouns</b>, <b>Teacher Remark</b>. Use the school template.</div>
+    <div id="uploadSummary" class="muted" style="margin-top:14px">No file selected.</div>
+    <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><button class="secondary" onclick="loadSample()">Load sample data</button></div>
+  </div>
+</section>
+
+<section id="classReview" class="page hidden">
+  <div class="breadcrumb"><span class="link" onclick="showPage('myReviews')">My reviews</span> › <span id="classCrumb"></span></div>
+  <div class="toolbar"><div><h1 id="classTitle"></h1><div class="muted" id="classSubtitle"></div></div><button class="secondary" onclick="exportCSV()">Download corrected CSV</button></div>
+  <div class="grid grid-4" id="metrics"></div>
+  <div class="card">
+    <div class="row">
+      <select id="statusFilter" onchange="renderRemarkTable()"><option value="all">All statuses</option><option value="critical">Critical</option><option value="required">Needs revision</option><option value="warning">Minor edits</option><option value="pass">Passed</option></select>
+      <input id="searchBox" placeholder="Search student" oninput="renderRemarkTable()" />
+    </div>
+    <div style="overflow:auto;margin-top:12px"><table><thead><tr><th>Student</th><th>Status</th><th>Issues</th><th>Characters</th><th></th></tr></thead><tbody id="remarkTableBody"></tbody></table></div>
+  </div>
+</section>
+
+<section id="remarkDetail" class="page hidden">
+  <div class="breadcrumb"><span class="link" onclick="showClassReview()">← Back to all remarks</span></div>
+  <div class="toolbar"><div><h1 id="detailName"></h1><div class="muted" id="detailCounter"></div></div><span id="detailStatus"></span></div>
+  <div class="grid grid-2">
+    <div class="card"><h3>Original remark</h3><div id="originalText"></div></div>
+    <div class="card"><h3>Issues found</h3><div id="issueList"></div></div>
+  </div>
+  <div class="card">
+    <h3>Edited remark</h3>
+    <textarea id="editedText" oninput="updateCharCount()"></textarea>
+    <div class="row" style="justify-content:space-between;margin-top:8px"><span id="charCount" class="muted"></span><div class="row"><button class="secondary" onclick="saveRemark()">Save</button><button class="primary" onclick="recheckRemark()">Recheck this remark</button></div></div>
+  </div>
+  <div class="row" style="justify-content:space-between"><button class="secondary" onclick="previousRemark()">Previous</button><button class="secondary" onclick="nextRemark()">Save and next</button></div>
+</section>
+
+<section id="submitted" class="page hidden"><div class="card"><h1>Submitted</h1><p class="muted">Submitted class batches will appear here.</p></div></section>
+
+<section id="adminDashboard" class="page hidden">
+  <h1>Administrator dashboard</h1>
+  <div class="grid grid-4" id="adminMetrics"></div>
+  <div class="grid grid-2">
+    <div class="card"><h3>Most common issues</h3><div id="commonIssues"></div></div>
+    <div class="card"><h3>Review activity</h3><p class="muted">Prototype data only. In production this would show teacher submissions, unresolved issues and override trends.</p></div>
+  </div>
+</section>
+
+<section id="allReviews" class="page hidden">
+  <div class="card"><h1>All reviews</h1><div id="allReviewList"></div></div>
+</section>
+
+<section id="users" class="page hidden">
+  <div class="toolbar"><div><h1>Users & access</h1><div class="muted">Add users individually or import a CSV.</div></div></div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Add user</h3>
+      <label>Name</label><input id="newUserName" style="width:100%" />
+      <label style="margin-top:10px">Email</label><input id="newUserEmail" style="width:100%" />
+      <label style="margin-top:10px">Access</label>
+      <div class="row"><label><input type="checkbox" id="roleTeacher" checked /> Teacher</label><label><input type="checkbox" id="roleAdmin" /> Administrator</label></div>
+      <label style="margin-top:10px">Scope / classes</label><input id="newUserScope" style="width:100%" placeholder="Grade 6A | Grade 6" />
+      <button class="primary" style="margin-top:14px" onclick="addUser()">Add user</button>
+    </div>
+    <div class="card">
+      <h3>Import users</h3>
+      <p class="muted">CSV columns: name, email, roles, scope</p>
+      <input id="userCsv" type="file" accept=".csv" />
+      <button class="secondary" style="margin-top:14px" onclick="importUsers()">Preview import</button>
+      <div id="userImportResult" class="muted" style="margin-top:12px"></div>
+    </div>
+  </div>
+  <div class="card"><table><thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Scope</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+</section>
+
+<section id="rubric" class="page hidden">
+  <div class="card">
+    <h1>Rubric</h1>
+    <p><b id="rubricName"></b> — Version <span id="rubricVersion"></span></p>
+    <p class="muted">The JSON rubric is bundled into the prototype and used by the local checks. Production would support draft, review and publish workflows.</p>
+    <div id="rubricSummary"></div>
+  </div>
+</section>
+</main>
+</div>
+
+<script>
+const rubric = {"rubric_name": "Report Remark Review Rubric", "version": "1.0", "purpose": "Review student report remarks for accuracy, professionalism, clarity, balance, safeguarding, consistency and usefulness. The reviewer identifies issues; the teacher approves the final remark.", "severity_levels": {"critical": {"description": "Must not be submitted until corrected.", "triggers": ["wrong student name", "incorrect pronoun", "confidential or sensitive information", "diagnosis or medical disclosure", "humiliating language", "duplicate remark assigned to another student", "serious factual inconsistency"]}, "required": {"description": "Teacher must review and correct.", "triggers": ["grammar or spelling affecting professionalism", "unsupported academic claims", "no actionable development point", "contradiction", "inaccurate programme or role name", "excessive length", "repeated paragraphs", "harsh or inappropriate wording"]}, "warning": {"description": "Teacher should review and decide whether revision is needed.", "triggers": ["inflated language", "generic praise", "mild repetition", "slightly vague advice", "excessive wordiness", "inconsistent but non-critical style"]}, "none": {"description": "No major issue.", "criteria": ["accurate and internally consistent", "includes a specific strength", "includes a useful development point where required", "professional language", "avoids sensitive or exaggerated claims", "grammatically correct", "follows school naming conventions", "within length limit"]}}, "categories": [{"id": "A1", "section": "Required Content", "title": "Clear strength", "severity": "required", "rule": "Must include at least one specific, observable strength (learning, effort, improvement, participation, conceptual understanding, creativity, responsibility, collaboration, leadership, organisation, communication, social development), supported by an example where appropriate. An example is not strictly required if the strength itself is already clearly observable.", "pass_example": "She asks thoughtful questions and applies feedback carefully to her written work.", "flag_example": "She is a wonderful student.", "flag_reason": "Generic praise, no observable strength identified."}, {"id": "A2", "section": "Required Content", "title": "Evidence or example", "severity": "required", "rule": "Important claims should be supported by a specific observation or example (participation, work habits, revision, written responses, projects, presentations, assemblies, Sports Day, Khoj, class responsibilities, clubs, performances, group work, changes over term).", "pass_example": "His growing confidence was evident when he presented his ideas during the class assembly.", "flag_example": "He has developed exceptional leadership qualities.", "flag_reason": "Broad and unsupported claim."}, {"id": "A3", "section": "Required Content", "title": "Progress over time", "severity": "warning", "rule": "Where relevant, identify a genuine change observed during the term or year.", "pass_example": "She now participates more frequently in whole-class discussions.", "flag_example": "She has improved tremendously in every area.", "flag_reason": "Overly broad and unsupported."}, {"id": "A4", "section": "Required Content", "title": "Actionable area for development", "severity": "required", "rule": "Should normally include at least one specific and actionable growth point stating what the student should practise or improve (revision, proofreading, careful reading, sustained attention, timely completion, handwriting, organising resources, participation, questioning, detail, spelling/written expression, following instructions, collaborative listening). A full issue/action/benefit structure (see E1) is preferred but not required for this pass/fail check.", "pass_example": "Reviewing her work before submission will help her identify spelling and punctuation errors.", "flag_example": "She needs to work harder.", "flag_reason": "Vague, no specified action."}, {"id": "A5", "section": "Required Content", "title": "Balanced content", "severity": "required", "rule": "Must present a fair picture: not all praise or all criticism, no overstatement, no repetition of the same point \u2014 unless a strengths-only remark is intentionally permitted by school policy, in which case this check does not apply.", "flags": ["praise only, no growth point", "criticism only", "overstated strengths or concerns", "repeated strength or weakness"]}, {"id": "B1", "section": "Accuracy", "title": "Correct student identity", "severity": "critical", "rule": "Student's name must be correct and used consistently throughout; no other student's name may appear; check for duplicate students/remarks.", "flag_example": "Aaditya ... We look forward to seeing Aarav continue to progress."}, {"id": "B2", "section": "Accuracy", "title": "Pronoun consistency", "severity": "critical", "rule": "Pronouns must be internally consistent and match verified roster information. Do not infer gender from name alone. If unknown, output: 'Verify pronouns against the class roster.'", "flag_example": "Aaditya ... We look forward to seeing her continue to grow."}, {"id": "B3", "section": "Accuracy", "title": "Academic claims", "severity": "required", "rule": "Claims such as 'grades have improved', 'performance has declined', 'performs well across all subjects', 'exceeds grade-level expectations', 'consistently produces excellent work', 'demonstrates strong achievement in [subject]', 'has shown significant academic growth' must be supported by grades/work samples/records. This includes general/unsupported academic claims, not only improved/declined statements. If unavailable, flag: 'Verify against academic records.'"}, {"id": "B4", "section": "Accuracy", "title": "Activities, awards and responsibilities", "severity": "required", "rule": "Verify claims about medals, trophies, competitions, teams, clubs, Student Council, Eco Club, LEAD Collective, 'Bully to Buddy', class responsibilities, performances, leadership roles, published work, external achievements. Do not assume correctness."}, {"id": "B5", "section": "Accuracy", "title": "Attendance and missed work", "severity": "critical", "rule": "Attendance may be mentioned only where it affects learning continuity; never state private reasons for absence.", "pass_example": "More regular attendance will support continuity in her learning.", "flag_example": "Her repeated absence due to family and medical issues has affected her work.", "flag_reason": "Contains private personal information."}, {"id": "C0", "section": "Professional Tone", "title": "Observable behaviour, not personality judgement", "severity": "required", "rule": "The remark should describe observable school behaviour and learning, not fixed personality traits or character judgements. Prefer descriptions of what the student does over labels for who the student is.", "pass_example": "He submits work on time and responds well to feedback.", "flag_example": "He is lazy and a bit stubborn.", "flag_reason": "Labels the student's character rather than describing observable behaviour."}, {"id": "C1", "section": "Professional Tone", "title": "Objective and school-appropriate language", "severity": "warning", "rule": "Use observable-behaviour language.", "preferred_terms": ["participates actively", "submits work on time", "seeks clarification", "contributes ideas", "responds to feedback", "collaborates with peers", "benefits from reminders", "is developing greater consistency"], "avoid_terms": ["naughty", "cute", "sweet", "beloved", "mischievous", "lazy", "stubborn", "difficult child", "attention-seeking", "spoilt", "obedient"]}, {"id": "C2", "section": "Professional Tone", "title": "Avoid casual or conversational phrasing", "severity": "warning", "avoid_terms": ["go for it", "keep shining", "tucked into tasks", "brings lively vibes", "in his own world", "gets charged up", "a joy to teach", "heart of the class", "all the right ingredients", "unlock brilliance"]}, {"id": "C3", "section": "Professional Tone", "title": "Avoid overly sentimental language", "severity": "warning", "avoid_terms": ["makes everyone proud", "she will always be remembered", "everyone loves him", "we adore her", "she lights up every room", "he is destined for greatness"], "note": "A restrained closing is preferred."}, {"id": "C4", "section": "Professional Tone", "title": "Avoid authority-heavy language", "severity": "warning", "avoid_terms": ["respectful towards authority", "must obey teachers", "should accept authority", "dialogue with authority"], "preferred_terms": ["interacts respectfully with teachers and peers", "follows classroom expectations", "responds constructively to guidance", "follows agreed routines"]}, {"id": "D1", "section": "Inflated or Unsupported Language", "title": "Excessive praise", "severity": "warning", "rule": "Flag unless supported by specific, verifiable evidence.", "avoid_terms": ["exceptional", "outstanding", "remarkable", "brilliant", "perfect", "exemplary", "extraordinary", "academic excellence", "true excellence", "immense talent", "tremendous growth", "greater heights", "ideal learner", "future thought leader", "destined for success", "excels in every area", "surpasses others"]}, {"id": "D2", "section": "Inflated or Unsupported Language", "title": "Generic motivational endings", "severity": "warning", "avoid_terms": ["Keep shining!", "Reach for the stars!", "She will achieve great success.", "He will unlock his full potential.", "She is destined for excellence.", "We know he will make everyone proud."], "preferred_terms": ["This will support her continued progress.", "With consistent effort, he can strengthen this area further.", "She is well placed to continue developing these skills.", "We wish him well for Grade 7."]}, {"id": "D3", "section": "Inflated or Unsupported Language", "title": "Claims about potential", "severity": "warning", "rule": "Avoid relying on unobservable 'potential'.", "flag_example": "He is not performing according to his true potential.", "pass_example": "Greater consistency in completing tasks will help his work reflect his understanding more accurately."}, {"id": "E1", "section": "Development Points", "title": "Specific and practical", "severity": "required", "rule": "Growth points must identify: (1) the observable issue, (2) the action the student can take, (3) the expected learning benefit.", "pass_example": "Reading questions carefully and reviewing answers before submission will help reduce avoidable errors.", "flag_example": "She should become more serious."}, {"id": "E2", "section": "Development Points", "title": "Reasonable number of development points", "severity": "required", "rule": "Generally no more than two or three priority areas. Flag remarks listing many unrelated concerns (attendance, handwriting, focus, emotional regulation, peer relationships, spelling, organisation, reading, submission, self-confidence)."}, {"id": "E3", "section": "Development Points", "title": "Avoid repeated directives", "severity": "warning", "avoid_terms": ["must", "needs to", "should", "has to"], "preferred_terms": ["would benefit from", "is encouraged to", "continuing to practise", "developing a routine for", "greater attention to", "regular revision will support"]}, {"id": "E4", "section": "Development Points", "title": "Avoid vague counselling advice", "severity": "critical", "rule": "Flag advice beyond classroom/academic responsibility; convert to observable school-based actions where appropriate.", "avoid_terms": ["love yourself", "accept yourself as you are", "confide in your parents", "choose better friends", "build emotional strength", "practise inner healing", "manage racing thoughts"]}, {"id": "F1", "section": "Safeguarding, Privacy and Sensitivity", "title": "Medical and diagnostic information", "severity": "critical", "rule": "Do not include medical diagnoses, mental-health conditions, therapy, speech therapy, counselling details, medication, doctor's recommendations, special-needs details, confidential intervention programmes, unless explicitly authorised by the school for that report format."}, {"id": "F2", "section": "Safeguarding, Privacy and Sensitivity", "title": "Clinical or diagnostic wording", "severity": "critical", "avoid_terms": ["executive dysfunction", "emotionally dependent", "dysregulated", "clinically anxious", "attention deficit", "sensory issues", "behavioural disorder"], "preferred_terms": ["He benefits from reminders to return his attention to the task."]}, {"id": "F3", "section": "Safeguarding, Privacy and Sensitivity", "title": "Personal and family matters", "severity": "critical", "rule": "Do not mention family relationships, parental wishes, comparisons with parents, family travel reasons, home conflicts, financial circumstances, another sibling's needs, private conversations with parents."}, {"id": "F4", "section": "Safeguarding, Privacy and Sensitivity", "title": "Personal habits outside school", "severity": "required", "rule": "Unless explicitly authorised, avoid personal hygiene, eating habits, sleep, clothing, body image, screen time, household routines. Remarks should stay focused on school learning and behaviour."}, {"id": "F5", "section": "Safeguarding, Privacy and Sensitivity", "title": "Humiliating or embarrassing language", "severity": "critical", "avoid_terms": ["negative attention-seeking", "causes disruption for everyone", "behaves badly", "is immature", "has no self-control", "is careless and lazy", "acts foolishly", "is socially awkward"]}, {"id": "G1", "section": "Equity and Fairness", "title": "No comparison with others", "severity": "critical", "rule": "Avoid comparisons with classmates, siblings, parents, age peers, or 'average students'.", "flag_examples": ["She performs better than most students in the class.", "Much like her mother, she is highly creative."]}, {"id": "G2", "section": "Equity and Fairness", "title": "Avoid superiority claims", "severity": "warning", "avoid_terms": ["sets him apart", "rare for her age", "surpasses others", "better than peers", "the best student", "a benchmark for others"]}, {"id": "G3", "section": "Equity and Fairness", "title": "Avoid stereotypes", "severity": "critical", "rule": "Do not make assumptions based on gender, culture, language background, disability, personality type, or family background."}, {"id": "H1", "section": "Internal Consistency", "title": "No contradiction", "severity": "required", "rule": "Flag remarks describing the same quality as both strength and weakness without context/explained change.", "example": "She consistently remains focused throughout lessons. / She needs frequent reminders to focus during lessons."}, {"id": "H2", "section": "Internal Consistency", "title": "No duplicated content", "severity": "required", "rule": "Flag repeated paragraphs, repeated sentences, the same growth point stated twice, copied closings, or two identical remarks assigned to different students."}, {"id": "H3", "section": "Internal Consistency", "title": "Correct logical connectors", "severity": "warning", "rule": "Check logical use of words such as additionally, however, although, while, moving forward, at the same time. Do not use 'Additionally' to introduce the first and only development point."}, {"id": "I1", "section": "Language and Mechanics", "title": "Grammar", "severity": "required", "checks": ["subject-verb agreement", "singular/plural forms", "articles", "verb tense", "sentence structure", "pronoun agreement", "incomplete sentences", "run-on sentences"]}, {"id": "I2", "section": "Language and Mechanics", "title": "Spelling", "severity": "required", "rule": "Check all spelling including student names and school terminology.", "commonly_misspelled": ["demeanour", "independent", "constructive", "noticeable", "achievements", "sportsmanship", "organisational", "participated", "friendship", "opportunity"]}, {"id": "I3", "section": "Language and Mechanics", "title": "Punctuation and spacing", "severity": "required", "checks": ["missing spaces after full stops", "double spaces", "comma splices", "incorrect apostrophes", "excessive semicolons", "unnecessary quotation marks", "missing final punctuation", "accidental characters or formatting marks"]}, {"id": "I4", "section": "Language and Mechanics", "title": "Common usage corrections", "severity": "warning", "corrections": {"work ethics": "work ethic", "ask doubts": "seek clarification", "dedicatedly": "with dedication", "well capable of": "able to", "progress further": "make further progress", "sportsman spirit": "sportsmanship", "very social": "sociable", "organisation skills": "organisational skills", "spellings": "spelling (unless school intentionally uses 'spellings')", "written expressions (general skill)": "written expression"}}, {"id": "I5", "section": "Language and Mechanics", "title": "British/Indian school English", "severity": "warning", "rule": "Use one spelling system consistently.", "preferred_forms": ["organisation", "organised", "behaviour", "fulfil", "programme", "practise (verb)", "practice (noun)", "recognise", "minimise", "emphasise"]}, {"id": "J1", "section": "School Naming and Capitalisation", "title": "Programme names", "severity": "required", "canonical_forms": ["Bully to Buddy", "LEAD Collective", "Eco Club", "Student Council"]}, {"id": "J2", "section": "School Naming and Capitalisation", "title": "Khoj", "severity": "required", "canonical_form": "Khoj", "avoid_forms": ["KHOJ", "khoj", "'Khoj' (unless quotation marks are official style)"]}, {"id": "J3", "section": "School Naming and Capitalisation", "title": "Subjects", "severity": "warning", "canonical_forms": ["Mathematics", "English", "Hindi", "Sanskrit", "Science", "Social Science", "Expedition", "Module", "Digital Literacy", "Physical Education", "Visual Arts", "Performing Arts"], "rule": "Do not capitalise general (non-subject) uses."}, {"id": "J4", "section": "School Naming and Capitalisation", "title": "Sports and activities", "severity": "warning", "rule": "Follow one school-wide capitalisation style consistently.", "canonical_forms": ["Cricket", "Football", "Basketball", "Swimming", "Table Tennis", "Track and Field", "Volleyball", "Karate", "Yoga"]}, {"id": "J5", "section": "School Naming and Capitalisation", "title": "Events and roles", "severity": "warning", "canonical_forms": ["Sports Day", "Class Assembly", "Cyber Safety Ambassador", "Transition In-Charge", "Event Management Team"], "rule": "Generic descriptions remain lowercase."}, {"id": "K1", "section": "Length and Readability", "title": "Character limit", "severity": "required", "rule": "Maximum 1,000 characters including spaces. Any remark exceeding this must be flagged.", "max_characters": 1000}, {"id": "K2", "section": "Length and Readability", "title": "Recommended length", "severity": "warning", "recommended_word_count": "100-150", "rule": "Exact length may vary provided the remark stays clear and within the character limit."}, {"id": "K3", "section": "Length and Readability", "title": "Readability", "severity": "warning", "flags": ["very long sentences", "reads like a list of praise", "excessive repetition of student's name", "several unrelated ideas in one sentence", "overly formal or complicated language", "too many adjectives", "substantially longer than other remarks"]}, {"id": "L1", "section": "Closing Statements", "title": "Preferred closing", "severity": "warning", "preferred_examples": ["With continued effort, she is well placed to make steady progress.", "Regular practice will support his continued development.", "We wish her well for Grade 7.", "We wish him continued progress in the next academic year."]}, {"id": "L2", "section": "Closing Statements", "title": "Avoid", "severity": "warning", "avoid_examples": ["Keep shining!", "Make everyone proud!", "Reach greater heights!", "He will certainly excel!", "She is destined for success!", "Unlock your brilliance!", "We look forward to seeing you become a star!"]}], "final_checklist_reference": ["Student's name is correct", "Pronouns are correct and consistent", "Remark contains at least one specific, observable strength, supported by an example where appropriate", "Important claims are supported by evidence", "Academic claims (improved, declined, or general such as 'performs well across all subjects') match records", "Remark includes at least one specific and actionable growth point stating what the student should practise or improve", "Growth point is not vague or overly personal", "Remark is balanced \u2014 not all praise or all criticism, unless a strengths-only remark is intentionally permitted by school policy", "Remark describes observable school behaviour, not personality judgements", "No sensitive or confidential information", "Language is professional and non-judgemental", "No exaggerated or promotional language", "No contradictions or repeated sentences", "School programmes, subjects, sports and roles are written consistently", "Spelling, grammar, punctuation and spacing have been checked", "Remark is under 1,000 characters", "Closing is brief and professional", "Final correction has been made by the teacher"]};
+let batches = JSON.parse(localStorage.getItem('rr_batches') || '[]');
+let activeBatchId = null;
+let activeRemarkId = null;
+let uploadedRows = [];
+let users = JSON.parse(localStorage.getItem('rr_users') || JSON.stringify([
+  {name:'Priya Sharma',email:'priya@school.org',roles:['teacher','admin'],scope:'Grade 6A | Grade 6'},
+  {name:'Aman Verma',email:'aman@school.org',roles:['teacher'],scope:'Grade 7B'}
+]));
+
+const phraseRules = [];
+for (const rule of rubric.categories) {
+  for (const key of ['avoid_terms','avoid_examples']) {
+    if (Array.isArray(rule[key])) {
+      rule[key].forEach(term => phraseRules.push({rule, term}));
+    }
+  }
+}
+const commonCorrections = (rubric.categories.find(r=>r.id==='I4')||{}).corrections || {};
+
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.page===id));
+  if(id==='myReviews') renderReviewCards();
+  if(id==='users') renderUsers();
+  if(id==='adminDashboard') renderAdmin();
+  if(id==='allReviews') renderAllReviews();
+}
+document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+document.getElementById('viewSwitcher').onchange=e=>{
+  const admin=e.target.value==='admin';
+  document.getElementById('teacherNav').classList.toggle('hidden',admin);
+  document.getElementById('adminNav').classList.toggle('hidden',!admin);
+  showPage(admin?'adminDashboard':'myReviews');
+};
+
+function severityRank(s){return ({critical:4,required:3,warning:2,none:1})[s]||1}
+function statusFor(issues){
+  if(!issues.length) return 'pass';
+  return issues.sort((a,b)=>severityRank(b.severity)-severityRank(a.severity))[0].severity;
+}
+function statusLabel(s){return ({critical:'Critical issue',required:'Needs revision',warning:'Minor edits',pass:'No major issues'})[s]}
+function badge(s){return `<span class="badge badge-${s}">${statusLabel(s)}</span>`}
+function charCount(s){return [...(s||'')].length}
+
+function deterministicReview(student){
+  const text=student.currentText||'';
+  const issues=[];
+  const add=(ruleId,severity,phrase,explanation,action)=>{
+    if(!issues.some(i=>i.ruleId===ruleId&&i.phrase===phrase)) issues.push({ruleId,severity,phrase,explanation,action,status:'open'});
+  };
+  if(charCount(text)>1000) add('K1','required',`${charCount(text)} characters`,'The remark exceeds the 1,000-character limit.','Shorten the remark while retaining the essential evidence and growth point.');
+  if(/\.\S/.test(text)) add('I3','required','Missing space after a full stop','One or more sentences are joined without a space.','Correct the spacing.');
+  if(/  +/.test(text)) add('I3','required','Repeated spaces','The remark contains extra spaces.','Remove the extra spaces.');
+  const sentences=text.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length>20);
+  const seen=new Set(); for(const s of sentences){const k=s.toLowerCase(); if(seen.has(k)) add('H2','required',s,'This sentence is repeated.','Remove the duplicated sentence.'); seen.add(k);}
+  if(student.name && !text.toLowerCase().includes(student.name.toLowerCase())) add('B1','critical','Student name not found','The remark may not refer clearly to the selected student.','Verify the student identity.');
+  const names=(text.match(/\b[A-Z][a-z]{2,}\b/g)||[]).filter(n=>!['Grade','Term','Sports','Day','English','Hindi','Mathematics','Science','Khoj','Eco','Club','Student','Council'].includes(n));
+  const otherNames=[...new Set(names.filter(n=>student.name && n!==student.name && !['With','Moving','During','Regular','Continued','Reviewing','Although','However','Additionally'].includes(n)))];
+  if(otherNames.length>2) add('B1','critical',otherNames.slice(0,3).join(', '),'Another student name may be present.','Verify all names in the remark.');
+  if(student.pronouns){
+    const p=student.pronouns.toLowerCase();
+    if(p.includes('he') && /\b(she|her|hers)\b/i.test(text)) add('B2','critical',text.match(/\b(she|her|hers)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
+    if(p.includes('she') && /\b(he|him|his)\b/i.test(text)) add('B2','critical',text.match(/\b(he|him|his)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
+  }
+  for(const {rule,term} of phraseRules){
+    const re=new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');
+    if(re.test(text)) add(rule.id,rule.severity,term,rule.title,`Review this phrase against rule ${rule.id}.`);
+  }
+  for(const [bad,good] of Object.entries(commonCorrections)){
+    if(text.toLowerCase().includes(bad.toLowerCase().replace(' (general skill)',''))) add('I4','warning',bad,`Preferred usage: ${good}.`,'Review the usage.');
+  }
+  if(!/(would benefit|is encouraged|can work|should|needs to|regular .* will|developing|improving|reviewing|focus on|to strengthen|moving forward)/i.test(text)) {
+    add('A4','required','No clear development point detected','The remark may not include a specific actionable growth point.','Add one practical growth point.');
+  }
+  if(/\b(exceptional|outstanding|remarkable|perfect|destined|brilliant|tremendous)\b/i.test(text)) {
+    const m=text.match(/\b(exceptional|outstanding|remarkable|perfect|destined|brilliant|tremendous)\b/i)[0];
+    add('D1','warning',m,'This may be inflated unless supported by specific evidence.','Verify the evidence or moderate the claim.');
+  }
+  return issues;
+}
+
+function makeBatch(rows,className,termName){
+  const id=Date.now().toString();
+  const remarks=rows.map((r,i)=>{
+    const obj={id:id+'-'+i,name:r['Student Name']||r.student||'',pronouns:r['Pronouns']||'',originalText:r['Teacher Remark']||r.remark||'',currentText:r['Teacher Remark']||r.remark||'',issues:[]};
+    obj.issues=deterministicReview(obj); obj.status=statusFor(obj.issues); return obj;
+  });
+  return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version};
+}
+function save(){localStorage.setItem('rr_batches',JSON.stringify(batches))}
+function renderReviewCards(){
+  const c=document.getElementById('reviewCards');
+  if(!batches.length){c.innerHTML='<div class="card"><p class="muted">No reviews yet.</p></div>';return}
+  c.innerHTML=batches.map(b=>`<div class="card"><div class="toolbar"><div><h3>${b.className} — ${b.termName}</h3><div class="muted">${b.remarks.length} remarks · Rubric ${b.rubricVersion}</div></div><button class="primary" onclick="openBatch('${b.id}')">Continue review</button></div></div>`).join('');
+}
+function openBatch(id){activeBatchId=id;showClassReview()}
+function activeBatch(){return batches.find(b=>b.id===activeBatchId)}
+function showClassReview(){
+  const b=activeBatch(); if(!b){showPage('myReviews');return}
+  showPage('classReview'); document.getElementById('classTitle').textContent=`${b.className} — ${b.termName}`;
+  document.getElementById('classCrumb').textContent=`${b.className} — ${b.termName}`;
+  document.getElementById('classSubtitle').textContent=`${b.remarks.length} remarks · Rubric ${b.rubricVersion}`;
+  renderRemarkTable();
+}
+function renderRemarkTable(){
+  const b=activeBatch(); if(!b)return;
+  const counts={critical:0,required:0,warning:0,pass:0}; b.remarks.forEach(r=>counts[r.status]++);
+  document.getElementById('metrics').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="metric"><strong>${v}</strong><span class="muted">${statusLabel(k)}</span></div>`).join('');
+  const f=document.getElementById('statusFilter').value, q=document.getElementById('searchBox').value.toLowerCase();
+  const rows=b.remarks.filter(r=>(f==='all'||r.status===f)&&r.name.toLowerCase().includes(q));
+  document.getElementById('remarkTableBody').innerHTML=rows.map(r=>`<tr><td><b>${r.name}</b></td><td>${badge(r.status)}</td><td>${r.issues.filter(i=>i.status==='open').map(i=>i.ruleId).join(', ')||'—'}</td><td>${charCount(r.currentText)}</td><td><button class="secondary" onclick="openRemark('${r.id}')">Review</button></td></tr>`).join('');
+}
+function openRemark(id){
+  activeRemarkId=id; const b=activeBatch(),r=b.remarks.find(x=>x.id===id); showPage('remarkDetail');
+  document.getElementById('detailName').textContent=r.name;
+  document.getElementById('detailCounter').textContent=`Student ${b.remarks.indexOf(r)+1} of ${b.remarks.length}`;
+  document.getElementById('detailStatus').innerHTML=badge(r.status);
+  document.getElementById('originalText').textContent=r.originalText;
+  document.getElementById('editedText').value=r.currentText;
+  renderIssues(r); updateCharCount();
+}
+function renderIssues(r){
+  const open=r.issues.filter(i=>i.status==='open');
+  document.getElementById('issueList').innerHTML=open.length?open.map((i,idx)=>`<div class="issue ${i.severity}"><div class="issue-title"><b>${i.severity.toUpperCase()} — ${i.ruleId}</b><span class="muted">${i.phrase||''}</span></div><p>${i.explanation}</p><p class="muted">${i.action}</p><div class="row"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button><button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Not applicable</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div></div>`).join(''):'<span class="badge badge-pass">No open issues</span>';
+}
+function currentRemark(){const b=activeBatch();return b.remarks.find(r=>r.id===activeRemarkId)}
+function updateCharCount(){const n=charCount(document.getElementById('editedText').value);document.getElementById('charCount').textContent=`${n} / 1000 characters`}
+function saveRemark(){const r=currentRemark();r.currentText=document.getElementById('editedText').value;save()}
+function recheckRemark(){const r=currentRemark();saveRemark();r.issues=deterministicReview(r);r.status=statusFor(r.issues);save();openRemark(r.id)}
+function decideIssue(openIndex,decision){
+  const r=currentRemark(); const open=r.issues.filter(i=>i.status==='open'); open[openIndex].status=decision; r.status=statusFor(r.issues.filter(i=>i.status==='open')); save(); openRemark(r.id);
+}
+function previousRemark(){saveRemark();const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);openRemark(b.remarks[Math.max(0,i-1)].id)}
+function nextRemark(){saveRemark();const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);openRemark(b.remarks[Math.min(b.remarks.length-1,i+1)].id)}
+
+function parseCSV(text){
+  const rows=[];let row=[],cell='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c==='"'&&q&&n==='"'){cell+='"';i++}else if(c==='"'){q=!q}else if(c===','&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&n==='\n')i++;row.push(cell);if(row.some(x=>x!==''))rows.push(row);row=[];cell=''}else cell+=c}
+  row.push(cell);if(row.some(x=>x!==''))rows.push(row);
+  const headers=rows.shift().map(h=>h.trim());
+  return rows.map(r=>Object.fromEntries(headers.map((h,i)=>[h,(r[i]||'').trim()])));
+}
+document.getElementById('fileInput').onchange=async e=>{
+  const file=e.target.files[0]; if(!file)return;
+  if(file.name.toLowerCase().endsWith('.csv')) uploadedRows=parseCSV(await file.text());
+  else {
+    if(!window.XLSX){alert('XLSX library could not load. Use CSV for this prototype.');return}
+    const wb=XLSX.read(await file.arrayBuffer()); uploadedRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+  }
+  document.getElementById('uploadSummary').textContent=`${file.name}: ${uploadedRows.length} students found.`;
+};
+const _apiStatusMap={'critical_issue':'critical','needs_revision':'required','minor_edits':'warning','no_major_issues':'pass'};
+
+function makeBatchFromApiResults(apiResults,originalRows,className,termName){
+  const id=Date.now().toString();
+  const rowByName={};originalRows.forEach(r=>{rowByName[r['Student Name']]=r;});
+  const remarks=apiResults.map((result,i)=>{
+    const orig=rowByName[result.student_name]||{};
+    const issues=result.issues.map(issue=>({ruleId:issue.rule_id,severity:issue.severity,phrase:issue.exact_phrase||'',explanation:issue.explanation||'',action:issue.teacher_action||'',status:'open'}));
+    return {id:id+'-'+i,name:result.student_name,pronouns:orig['Pronouns']||'',originalText:orig['Teacher Remark']||'',currentText:orig['Teacher Remark']||'',issues,status:_apiStatusMap[result.status]||'pass'};
+  });
+  return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version};
+}
+
+async function startReview(){
+  if(!uploadedRows.length){alert('Upload a spreadsheet or load sample data.');return}
+  const required=['Student Name','Teacher Remark'];const missing=required.filter(h=>!(h in uploadedRows[0]));
+  if(missing.length){alert('Missing required columns: '+missing.join(', '));return}
+  const className=document.getElementById('className').value,termName=document.getElementById('termName').value;
+  const btn=document.querySelector('#upload .primary');
+  btn.disabled=true;btn.textContent='Running AI review…';
+  document.getElementById('uploadSummary').textContent='Reviewing with AI — this may take up to a minute…';
+  try{
+    const resp=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:uploadedRows})});
+    if(!resp.ok){const err=await resp.json().catch(()=>({}));alert('Review failed: '+(err.error||resp.statusText));return;}
+    const apiResults=await resp.json();
+    const b=makeBatchFromApiResults(apiResults,uploadedRows,className,termName);
+    batches.push(b);save();activeBatchId=b.id;showClassReview();
+  }catch(e){alert('Network error: '+e.message);}
+  finally{btn.disabled=false;btn.textContent='Start review';}
+}
+function loadSample(){
+  uploadedRows=parseCSV(`Student Name,Pronouns,Teacher Remark
+Aaditya,he/him,"Aaditya shows strong teamwork and dedication. Aaditya can improve his verbal expression. Aaditya can improve his verbal expression. We look forward to seeing her continue to grow and shine."
+Aarna,she/her,"Aarna is responsible and completes work on time. Reviewing her work before submission will help her reduce avoidable errors."
+Kabir,he/him,"Kabir is a wonderful student and a joy to teach."`);
+  document.getElementById('uploadSummary').textContent='Sample data: 3 students found.';
+}
+function exportCSV(){
+  const b=activeBatch(); const esc=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const lines=['Student Name,Pronouns,Teacher Remark,Review Status',...b.remarks.map(r=>[esc(r.name),esc(r.pronouns),esc(r.currentText),esc(statusLabel(r.status))].join(','))];
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${b.className}_${b.termName}_corrected.csv`;a.click();
+}
+function renderAdmin(){
+  const remarks=batches.flatMap(b=>b.remarks), counts={critical:0,required:0,warning:0,pass:0};remarks.forEach(r=>counts[r.status]++);
+  document.getElementById('adminMetrics').innerHTML=`<div class="metric"><strong>${batches.length}</strong><span class="muted">Review batches</span></div><div class="metric"><strong>${remarks.length}</strong><span class="muted">Remarks</span></div><div class="metric"><strong>${counts.critical}</strong><span class="muted">Critical</span></div><div class="metric"><strong>${counts.required}</strong><span class="muted">Needs revision</span></div>`;
+  const freq={};remarks.flatMap(r=>r.issues).forEach(i=>freq[i.ruleId]=(freq[i.ruleId]||0)+1);
+  document.getElementById('commonIssues').innerHTML=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`<p><b>${k}</b> — ${v} flags</p>`).join('')||'<p class="muted">No data yet.</p>';
+}
+function renderAllReviews(){document.getElementById('allReviewList').innerHTML=batches.map(b=>`<div class="card"><b>${b.className} — ${b.termName}</b><div class="muted">${b.remarks.length} remarks · uploaded ${new Date(b.createdAt).toLocaleString()}</div></div>`).join('')||'<p class="muted">No reviews yet.</p>'}
+function renderUsers(){document.getElementById('usersTable').innerHTML=users.map(u=>`<tr><td>${u.name}</td><td>${u.email}</td><td>${u.roles.join(', ')}</td><td>${u.scope}</td></tr>`).join('')}
+function addUser(){
+  const roles=[];if(document.getElementById('roleTeacher').checked)roles.push('teacher');if(document.getElementById('roleAdmin').checked)roles.push('admin');
+  users.push({name:document.getElementById('newUserName').value,email:document.getElementById('newUserEmail').value,roles,scope:document.getElementById('newUserScope').value});
+  localStorage.setItem('rr_users',JSON.stringify(users));renderUsers();
+}
+async function importUsers(){
+  const f=document.getElementById('userCsv').files[0];if(!f)return;
+  const rows=parseCSV(await f.text());document.getElementById('userImportResult').textContent=`${rows.length} users detected. Prototype preview only.`;
+}
+document.getElementById('rubricName').textContent=rubric.rubric_name;
+document.getElementById('rubricVersion').textContent=rubric.version;
+document.getElementById('rubricSummary').innerHTML=`<p><b>${rubric.categories.length}</b> rules across ${new Set(rubric.categories.map(r=>r.section)).size} sections.</p>`;
+renderReviewCards();
+</script>
+</body>
+</html>
