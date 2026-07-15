@@ -8,8 +8,7 @@
 :root{--bg:#f5f5fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;--blue:#312882;}
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px 16px}
-.wrap{display:flex;flex-direction:column;align-items:center;width:100%;max-width:400px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:40px;width:100%;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:40px;width:100%;max-width:400px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 h1{margin:0 0 6px;font-size:20px;font-weight:600}
 p{margin:0 0 20px;color:var(--muted);font-size:13px}
 label{font-size:13px;font-weight:600;display:block;margin-bottom:6px;margin-top:16px}
@@ -21,9 +20,10 @@ input:focus{outline:2px solid var(--blue);border-color:transparent}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <img src="/logo.png" alt="Quill" style="height:160px;margin-bottom:28px">
-  <div class="card">
+<div class="card">
+  <div style="text-align:center;margin-bottom:32px">
+    <img src="/logo.png" alt="Quill" style="height:160px">
+  </div>
   <h1>Sign in</h1>
   <p>Use the credentials your administrator set up for you.</p>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
@@ -34,7 +34,6 @@ input:focus{outline:2px solid var(--blue);border-color:transparent}
     <input id="password" type="password" name="password" required autocomplete="current-password" />
     <button class="primary" type="submit">Sign in</button>
   </form>
-  </div>
 </div>
 </body>
 </html>
