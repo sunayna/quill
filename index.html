@@ -62,11 +62,8 @@ pre{white-space:pre-wrap}
 <header>
   <div class="brand">Quill <span class="muted">Prototype</span></div>
   <div class="header-actions">
-    <select id="viewSwitcher">
-      <option value="teacher">Teacher view</option>
-      <option value="admin">Administrator view</option>
-    </select>
-    <span class="muted" id="currentUser">Priya Sharma</span>
+    <span class="muted" id="currentUser"></span>
+    <a href="/logout" style="font-size:13px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px">Sign out</a>
   </div>
 </header>
 <div class="shell">
@@ -79,6 +76,7 @@ pre{white-space:pre-wrap}
   <button class="navbtn active" data-page="adminDashboard">Dashboard</button>
   <button class="navbtn" data-page="allReviews">All reviews</button>
   <button class="navbtn" data-page="users">Users & access</button>
+  <button class="navbtn" data-page="manageSections">Sections</button>
   <button class="navbtn" data-page="rubric">Rubric</button>
 </nav>
 <main>
@@ -92,7 +90,7 @@ pre{white-space:pre-wrap}
   <div class="card">
     <h1>Upload remarks</h1>
     <div class="grid grid-2">
-      <div><label>Class / section</label><input id="className" value="Grade 6A" /></div>
+      <div><label>Class / section</label><select id="className" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff"></select></div>
       <div><label>Term</label><input id="termName" value="Term 2" /></div>
     </div>
     <div style="margin-top:16px"><label>Spreadsheet</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
@@ -146,26 +144,48 @@ pre{white-space:pre-wrap}
 </section>
 
 <section id="users" class="page hidden">
-  <div class="toolbar"><div><h1>Users & access</h1><div class="muted">Add users individually or import a CSV.</div></div></div>
+  <div class="toolbar"><div><h1>Users & access</h1><div class="muted">Add teachers and administrators.</div></div></div>
   <div class="grid grid-2">
     <div class="card">
       <h3>Add user</h3>
       <label>Name</label><input id="newUserName" style="width:100%" />
-      <label style="margin-top:10px">Email</label><input id="newUserEmail" style="width:100%" />
-      <label style="margin-top:10px">Access</label>
-      <div class="row"><label><input type="checkbox" id="roleTeacher" checked /> Teacher</label><label><input type="checkbox" id="roleAdmin" /> Administrator</label></div>
-      <label style="margin-top:10px">Scope / classes</label><input id="newUserScope" style="width:100%" placeholder="Grade 6A | Grade 6" />
+      <label style="margin-top:10px">Email</label><input id="newUserEmail" style="width:100%;type:email" />
+      <label style="margin-top:10px">Password</label><input id="newUserPassword" type="password" style="width:100%" />
+      <label style="margin-top:10px">Role</label>
+      <div class="row">
+        <label><input type="radio" name="newUserRole" id="roleTeacher" value="teacher" checked /> Teacher</label>
+        <label><input type="radio" name="newUserRole" id="roleAdmin" value="admin" /> Administrator</label>
+      </div>
+      <div id="sectionsField" style="margin-top:10px">
+        <label>Sections</label>
+        <select id="newUserSections" multiple style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;min-height:140px;background:#fff"></select>
+        <div class="muted" style="margin-top:4px;font-size:12px">Hold Ctrl / Cmd to select multiple.</div>
+      </div>
+      <div id="addUserResult" class="muted" style="margin-top:10px;font-size:13px"></div>
       <button class="primary" style="margin-top:14px" onclick="addUser()">Add user</button>
     </div>
     <div class="card">
-      <h3>Import users</h3>
-      <p class="muted">CSV columns: name, email, roles, scope</p>
-      <input id="userCsv" type="file" accept=".csv" />
-      <button class="secondary" style="margin-top:14px" onclick="importUsers()">Preview import</button>
-      <div id="userImportResult" class="muted" style="margin-top:12px"></div>
+      <h3>About sections</h3>
+      <p class="muted">Teachers are locked to the sections assigned here. They cannot change their section when uploading remarks. Manage the sections list from the <b>Sections</b> menu.</p>
     </div>
   </div>
-  <div class="card"><table><thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Scope</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+  <div class="card"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Sections</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+</section>
+
+<section id="manageSections" class="page hidden">
+  <div class="toolbar"><div><h1>Sections</h1><div class="muted">Add or view all class sections.</div></div></div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Add section</h3>
+      <label>Section name</label><input id="newSectionName" style="width:100%" placeholder="e.g. Grade 4J" />
+      <div id="addSectionResult" class="muted" style="margin-top:10px;font-size:13px"></div>
+      <button class="primary" style="margin-top:14px" onclick="addSection()">Add section</button>
+    </div>
+    <div class="card">
+      <h3>All sections</h3>
+      <div id="sectionsList" class="muted"></div>
+    </div>
+  </div>
 </section>
 
 <section id="rubric" class="page hidden">
@@ -185,10 +205,32 @@ let batches = JSON.parse(localStorage.getItem('rr_batches') || '[]');
 let activeBatchId = null;
 let activeRemarkId = null;
 let uploadedRows = [];
-let users = JSON.parse(localStorage.getItem('rr_users') || JSON.stringify([
-  {name:'Priya Sharma',email:'priya@school.org',roles:['teacher','admin'],scope:'Grade 6A | Grade 6'},
-  {name:'Aman Verma',email:'aman@school.org',roles:['teacher'],scope:'Grade 7B'}
-]));
+let CURRENT_USER = null;
+
+async function init(){
+  const resp = await fetch('/api/me');
+  if(!resp.ok){ window.location.href='/login'; return; }
+  CURRENT_USER = await resp.json();
+  document.getElementById('currentUser').textContent = CURRENT_USER.name;
+  if(CURRENT_USER.role==='admin'){
+    document.getElementById('adminNav').classList.remove('hidden');
+    document.getElementById('teacherNav').classList.add('hidden');
+    showPage('adminDashboard');
+  } else {
+    document.getElementById('teacherNav').classList.remove('hidden');
+    await populateClassDropdown();
+    showPage('myReviews');
+  }
+}
+
+async function populateClassDropdown(){
+  const sel = document.getElementById('className');
+  sel.innerHTML = '';
+  const sections = CURRENT_USER.sections.length ? CURRENT_USER.sections : await fetch('/api/sections').then(r=>r.json());
+  sections.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
+}
+
+init();
 
 const phraseRules = [];
 for (const rule of rubric.categories) {
@@ -205,17 +247,12 @@ function showPage(id){
   document.getElementById(id).classList.remove('hidden');
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.page===id));
   if(id==='myReviews') renderReviewCards();
-  if(id==='users') renderUsers();
+  if(id==='users'){ renderUsers(); populateNewUserSectionsDropdown(); }
   if(id==='adminDashboard') renderAdmin();
   if(id==='allReviews') renderAllReviews();
+  if(id==='manageSections') renderSections();
 }
 document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
-document.getElementById('viewSwitcher').onchange=e=>{
-  const admin=e.target.value==='admin';
-  document.getElementById('teacherNav').classList.toggle('hidden',admin);
-  document.getElementById('adminNav').classList.toggle('hidden',!admin);
-  showPage(admin?'adminDashboard':'myReviews');
-};
 
 function severityRank(s){return ({critical:4,required:3,warning:2,none:1})[s]||1}
 function statusFor(issues){
@@ -382,15 +419,58 @@ function renderAdmin(){
   document.getElementById('commonIssues').innerHTML=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`<p><b>${k}</b> — ${v} flags</p>`).join('')||'<p class="muted">No data yet.</p>';
 }
 function renderAllReviews(){document.getElementById('allReviewList').innerHTML=batches.map(b=>`<div class="card"><b>${b.className} — ${b.termName}</b><div class="muted">${b.remarks.length} remarks · uploaded ${new Date(b.createdAt).toLocaleString()}</div></div>`).join('')||'<p class="muted">No reviews yet.</p>'}
-function renderUsers(){document.getElementById('usersTable').innerHTML=users.map(u=>`<tr><td>${u.name}</td><td>${u.email}</td><td>${u.roles.join(', ')}</td><td>${u.scope}</td></tr>`).join('')}
-function addUser(){
-  const roles=[];if(document.getElementById('roleTeacher').checked)roles.push('teacher');if(document.getElementById('roleAdmin').checked)roles.push('admin');
-  users.push({name:document.getElementById('newUserName').value,email:document.getElementById('newUserEmail').value,roles,scope:document.getElementById('newUserScope').value});
-  localStorage.setItem('rr_users',JSON.stringify(users));renderUsers();
+async function renderUsers(){
+  const resp=await fetch('/api/users');
+  if(!resp.ok) return;
+  const users=await resp.json();
+  document.getElementById('usersTable').innerHTML=users.map(u=>`<tr><td>${u.name}</td><td>${u.email}</td><td>${u.role}</td><td>${u.sections||'—'}</td></tr>`).join('');
 }
-async function importUsers(){
-  const f=document.getElementById('userCsv').files[0];if(!f)return;
-  const rows=parseCSV(await f.text());document.getElementById('userImportResult').textContent=`${rows.length} users detected. Prototype preview only.`;
+
+async function populateNewUserSectionsDropdown(){
+  const sel=document.getElementById('newUserSections');
+  sel.innerHTML='';
+  const sections=await fetch('/api/sections').then(r=>r.json());
+  sections.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
+}
+
+document.querySelectorAll('input[name="newUserRole"]').forEach(r=>r.addEventListener('change',()=>{
+  document.getElementById('sectionsField').style.display=r.value==='admin'&&r.checked?'none':'block';
+}));
+
+async function addUser(){
+  const role=document.querySelector('input[name="newUserRole"]:checked').value;
+  const sections=role==='teacher'?[...document.getElementById('newUserSections').selectedOptions].map(o=>o.value):[];
+  const payload={
+    name:document.getElementById('newUserName').value,
+    email:document.getElementById('newUserEmail').value,
+    password:document.getElementById('newUserPassword').value,
+    role,sections
+  };
+  const res=document.getElementById('addUserResult');
+  const resp=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!resp.ok){const err=await resp.json();res.textContent='Error: '+(err.error||'Unknown error');return;}
+  res.textContent='User added.';
+  document.getElementById('newUserName').value='';
+  document.getElementById('newUserEmail').value='';
+  document.getElementById('newUserPassword').value='';
+  document.getElementById('newUserSections').selectedIndex=-1;
+  renderUsers();
+}
+
+async function renderSections(){
+  const sections=await fetch('/api/sections').then(r=>r.json());
+  document.getElementById('sectionsList').innerHTML=sections.map(s=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)">${s}</div>`).join('');
+}
+
+async function addSection(){
+  const name=document.getElementById('newSectionName').value.trim();
+  const res=document.getElementById('addSectionResult');
+  if(!name) return;
+  const resp=await fetch('/api/sections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+  if(!resp.ok){const err=await resp.json();res.textContent='Error: '+(err.error||'Unknown error');return;}
+  res.textContent='Section added.';
+  document.getElementById('newSectionName').value='';
+  renderSections();
 }
 document.getElementById('rubricName').textContent=rubric.rubric_name;
 document.getElementById('rubricVersion').textContent=rubric.version;

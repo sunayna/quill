@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign in — Quill</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;--blue:#1d4ed8;}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:40px;width:100%;max-width:400px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.brand{font-size:26px;font-weight:700;margin-bottom:28px}
+h1{margin:0 0 6px;font-size:20px;font-weight:600}
+p{margin:0 0 20px;color:var(--muted);font-size:13px}
+label{font-size:13px;font-weight:600;display:block;margin-bottom:6px;margin-top:16px}
+input{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;font:inherit;font-size:14px}
+input:focus{outline:2px solid var(--blue);border-color:transparent}
+.primary{width:100%;background:var(--blue);color:#fff;border:0;border-radius:8px;padding:12px;cursor:pointer;font:inherit;font-size:14px;font-weight:600;margin-top:24px}
+.primary:hover{background:#1e40af}
+.error{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">Quill</div>
+  <h1>Sign in</h1>
+  <p>Use the credentials your administrator set up for you.</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="POST">
+    <label for="email">Email</label>
+    <input id="email" type="email" name="email" required autocomplete="email" />
+    <label for="password">Password</label>
+    <input id="password" type="password" name="password" required autocomplete="current-password" />
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</div>
+</body>
+</html>
