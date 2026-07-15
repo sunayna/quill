@@ -272,15 +272,18 @@ def api_review():
     rows = data.get("rows", [])
     if not rows:
         return jsonify({"error": "No rows provided"}), 400
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return jsonify({"error": "GEMINI_API_KEY not configured on the server"}), 500
     try:
         norm_rows = _normalize_rows(rows)
         det_results = _validator.run_batch(norm_rows, rubric)
-        llm_results = _reviewer.run_review(
-            norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
-        )
+        if os.environ.get("SKIP_LLM") == "1":
+            llm_results = []
+        else:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                return jsonify({"error": "GEMINI_API_KEY not configured on the server"}), 500
+            llm_results = _reviewer.run_review(
+                norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
+            )
         results = _merge_results(det_results, llm_results)
         return jsonify(results)
     except Exception as e:

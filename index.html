@@ -91,12 +91,16 @@ pre{white-space:pre-wrap}
     <h1>Upload remarks</h1>
     <div class="grid grid-2">
       <div><label>Class / section</label><select id="className" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff"></select></div>
-      <div><label>Term</label><input id="termName" value="Term 2" /></div>
+      <div><label>Term</label><select id="termName" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff"><option>Term 1</option><option selected>Term 2</option><option>Term 3</option></select></div>
     </div>
-    <div style="margin-top:16px"><label>Spreadsheet</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
-    <div class="notice" style="margin-top:16px">Expected columns: <b>Student Name</b>, <b>Pronouns</b>, <b>Teacher Remark</b>. Use the school template.</div>
+    <div style="margin-top:16px"><label>Spreadsheet (CSV)</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
+    <div class="notice" style="margin-top:16px">
+      Required columns: <b>Student Name</b>, <b>Teacher Remark</b>.<br>
+      Optional: <b>Pronouns</b> — if your school roster includes preferred pronouns (he/him, she/her, they/them), add this column and the system will check pronoun consistency automatically. Teachers do not need to fill this in manually.
+      <div style="margin-top:10px"><button class="secondary" onclick="downloadTemplate()" style="font-size:13px;padding:6px 12px">Download blank template</button></div>
+    </div>
     <div id="uploadSummary" class="muted" style="margin-top:14px">No file selected.</div>
-    <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><button class="secondary" onclick="loadSample()">Load sample data</button></div>
+    <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="loadSample()">Load test data</span></div>
   </div>
 </section>
 
@@ -259,9 +263,10 @@ function statusFor(issues){
   if(!issues.length) return 'pass';
   return issues.sort((a,b)=>severityRank(b.severity)-severityRank(a.severity))[0].severity;
 }
-function statusLabel(s){return ({critical:'Critical issue',required:'Needs revision',warning:'Minor edits',pass:'No major issues'})[s]}
+function statusLabel(s){return ({critical:'Critical issue',required:'Needs revision',warning:'Minor edits',pass:'Passed'})[s]}
 function badge(s){return `<span class="badge badge-${s}">${statusLabel(s)}</span>`}
 function charCount(s){return [...(s||'')].length}
+const ruleTitle={};rubric.categories.forEach(r=>{ruleTitle[r.id]=r.title;});
 
 function deterministicReview(student){
   const text=student.currentText||'';
@@ -329,7 +334,7 @@ function renderRemarkTable(){
   document.getElementById('metrics').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="metric"><strong>${v}</strong><span class="muted">${statusLabel(k)}</span></div>`).join('');
   const f=document.getElementById('statusFilter').value, q=document.getElementById('searchBox').value.toLowerCase();
   const rows=b.remarks.filter(r=>(f==='all'||r.status===f)&&r.name.toLowerCase().includes(q));
-  document.getElementById('remarkTableBody').innerHTML=rows.map(r=>`<tr><td><b>${r.name}</b></td><td>${badge(r.status)}</td><td>${r.issues.filter(i=>i.status==='open').map(i=>i.ruleId).join(', ')||'—'}</td><td>${charCount(r.currentText)}</td><td><button class="secondary" onclick="openRemark('${r.id}')">Review</button></td></tr>`).join('');
+  document.getElementById('remarkTableBody').innerHTML=rows.map(r=>{const open=r.issues.filter(i=>i.status==='open');const summary=open.length?open.slice(0,2).map(i=>ruleTitle[i.ruleId]||i.ruleId).join(', ')+(open.length>2?` +${open.length-2} more`:''):'—';return `<tr><td><b>${r.name}</b></td><td>${badge(r.status)}</td><td style="font-size:13px;color:var(--muted)">${summary}</td><td>${charCount(r.currentText)}</td><td><button class="secondary" onclick="openRemark('${r.id}')">Review</button></td></tr>`;}).join('');
 }
 function openRemark(id){
   activeRemarkId=id; const b=activeBatch(),r=b.remarks.find(x=>x.id===id); showPage('remarkDetail');
@@ -342,7 +347,7 @@ function openRemark(id){
 }
 function renderIssues(r){
   const open=r.issues.filter(i=>i.status==='open');
-  document.getElementById('issueList').innerHTML=open.length?open.map((i,idx)=>`<div class="issue ${i.severity}"><div class="issue-title"><b>${i.severity.toUpperCase()} — ${i.ruleId}</b><span class="muted">${i.phrase||''}</span></div><p>${i.explanation}</p><p class="muted">${i.action}</p><div class="row"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button><button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Not applicable</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div></div>`).join(''):'<span class="badge badge-pass">No open issues</span>';
+  document.getElementById('issueList').innerHTML=open.length?open.map((i,idx)=>`<div class="issue ${i.severity}"><div class="issue-title"><b>${i.severity.charAt(0).toUpperCase()+i.severity.slice(1)} — ${ruleTitle[i.ruleId]||i.ruleId}</b>${i.phrase?`<span class="muted" style="font-size:12px">"${i.phrase}"</span>`:''}</div><p>${i.explanation}</p><p class="muted">${i.action}</p><div class="row"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button><button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Not applicable</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div></div>`).join(''):'<span class="badge badge-pass">No open issues</span>';
 }
 function currentRemark(){const b=activeBatch();return b.remarks.find(r=>r.id===activeRemarkId)}
 function updateCharCount(){const n=charCount(document.getElementById('editedText').value);document.getElementById('charCount').textContent=`${n} / 1000 characters`}
@@ -409,8 +414,19 @@ Kabir,he/him,"Kabir is a wonderful student and a joy to teach."`);
 }
 function exportCSV(){
   const b=activeBatch(); const esc=s=>'"'+String(s).replace(/"/g,'""')+'"';
-  const lines=['Student Name,Pronouns,Teacher Remark,Review Status',...b.remarks.map(r=>[esc(r.name),esc(r.pronouns),esc(r.currentText),esc(statusLabel(r.status))].join(','))];
-  const blob=new Blob([lines.join('\n')],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${b.className}_${b.termName}_corrected.csv`;a.click();
+  const header='Student Name,Teacher Remark,Review Status,Issues to Address';
+  const dataRows=b.remarks.map(r=>{
+    const openIssues=r.issues.filter(i=>i.status==='open');
+    const issueText=openIssues.map(i=>`${ruleTitle[i.ruleId]||i.ruleId}: ${i.explanation}`).join(' | ');
+    return [esc(r.name),esc(r.currentText),esc(statusLabel(r.status)),esc(issueText)].join(',');
+  });
+  const blob=new Blob([[header,...dataRows].join('\n')],{type:'text/csv'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=`${b.className}_${b.termName}_corrected.csv`;a.click();
+}
+function downloadTemplate(){
+  const csv='Student Name,Pronouns,Teacher Remark\nAarav Sharma,he/him,Write the student\'s report remark here.\nPriya Mehta,,Write the student\'s report remark here.';
+  const blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='quill_remarks_template.csv';a.click();
 }
 function renderAdmin(){
   const remarks=batches.flatMap(b=>b.remarks), counts={critical:0,required:0,warning:0,pass:0};remarks.forEach(r=>counts[r.status]++);
