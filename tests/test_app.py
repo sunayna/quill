@@ -126,6 +126,11 @@ class TestApiMe:
         assert data["role"] == "admin"
         assert data["name"] == "Admin"
 
+    def test_admin_sections_is_empty(self, admin_client):
+        """Admin has no assigned sections so the UI falls back to showing all sections."""
+        data = admin_client.get("/api/me").get_json()
+        assert data["sections"] == []
+
     def test_teacher_sections_returned(self, teacher_client):
         data = teacher_client.get("/api/me").get_json()
         assert data["role"] == "teacher"
@@ -159,6 +164,13 @@ class TestApiSections:
     def test_teacher_cannot_add_section(self, teacher_client):
         resp = teacher_client.post("/api/sections", json={"name": "Grade 8A"})
         assert resp.status_code == 403
+
+    def test_teacher_can_list_all_sections(self, teacher_client):
+        """Teachers need all sections for the upload dropdown, not just their own."""
+        data = teacher_client.get("/api/sections").get_json()
+        assert len(data) == 36
+        assert "Grade 4A" in data
+        assert "Grade 7I" in data
 
 
 # ── /api/users ─────────────────────────────────────────────────────────────────

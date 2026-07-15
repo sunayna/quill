@@ -74,6 +74,7 @@ pre{white-space:pre-wrap}
 </nav>
 <nav id="adminNav" class="hidden">
   <button class="navbtn active" data-page="adminDashboard">Dashboard</button>
+  <button class="navbtn" data-page="upload">Upload remarks</button>
   <button class="navbtn" data-page="allReviews">All reviews</button>
   <button class="navbtn" data-page="users">Users & access</button>
   <button class="navbtn" data-page="manageSections">Sections</button>
@@ -86,7 +87,7 @@ pre{white-space:pre-wrap}
 </section>
 
 <section id="upload" class="page hidden">
-  <div class="breadcrumb"><span class="link" onclick="showPage('myReviews')">My reviews</span> › Upload remarks</div>
+  <div class="breadcrumb"><span class="link" onclick="showPage(CURRENT_USER&&CURRENT_USER.role==='admin'?'adminDashboard':'myReviews')">← Back</span> › Upload remarks</div>
   <div class="card">
     <h1>Upload remarks</h1>
     <div class="grid grid-2">
@@ -198,9 +199,10 @@ pre{white-space:pre-wrap}
         <h1 style="margin:0 0 4px">Rubric</h1>
         <p class="muted" style="margin:0"><b id="rubricName"></b> &nbsp;&middot;&nbsp; Version <span id="rubricVersion"></span> &nbsp;&middot;&nbsp; <span id="rubricRuleCount"></span></p>
       </div>
-      <div id="rubricAdminTools" class="hidden">
+      <div id="rubricAdminTools" class="hidden" style="display:flex;gap:8px">
+        <button class="secondary" onclick="downloadRubric()" style="font-size:13px;padding:9px 14px">Download current</button>
         <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:400">
-          Upload new rubric (JSON)
+          Upload new rubric
           <input type="file" id="rubricUpload" accept=".json" style="display:none" onchange="handleRubricUpload(event)">
         </label>
       </div>
@@ -273,6 +275,7 @@ function showPage(id){
   if(id==='allReviews') renderAllReviews();
   if(id==='manageSections') renderSections();
   if(id==='rubric') renderRubric();
+  if(id==='upload') populateClassDropdown();
 }
 document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 
@@ -483,6 +486,11 @@ function renderRubric(){
   document.getElementById('rubricBody').innerHTML=html;
 }
 
+function downloadRubric(){
+  const blob=new Blob([JSON.stringify(rubric,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='rubric.json';a.click();
+}
+
 async function handleRubricUpload(evt){
   const file=evt.target.files[0]; if(!file) return;
   const msg=document.getElementById('rubricUploadMsg');
@@ -506,7 +514,7 @@ function renderAdmin(){
   const remarks=batches.flatMap(b=>b.remarks), counts={critical:0,required:0,warning:0,pass:0};remarks.forEach(r=>counts[r.status]++);
   document.getElementById('adminMetrics').innerHTML=`<div class="metric"><strong>${batches.length}</strong><span class="muted">Review batches</span></div><div class="metric"><strong>${remarks.length}</strong><span class="muted">Remarks</span></div><div class="metric"><strong>${counts.critical}</strong><span class="muted">Critical</span></div><div class="metric"><strong>${counts.required}</strong><span class="muted">Needs revision</span></div>`;
   const freq={};remarks.flatMap(r=>r.issues).forEach(i=>freq[i.ruleId]=(freq[i.ruleId]||0)+1);
-  document.getElementById('commonIssues').innerHTML=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`<p><b>${ruleTitle[k]||k}</b> <span class="muted" style="font-weight:400;font-size:12px">${k}</span> — ${v} flags</p>`).join('')||'<p class="muted">No data yet.</p>';
+  document.getElementById('commonIssues').innerHTML=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`<p><b>${ruleTitle[k]||k}</b> — ${v} flags</p>`).join('')||'<p class="muted">No data yet.</p>';
 }
 function renderAllReviews(){document.getElementById('allReviewList').innerHTML=batches.map(b=>`<div class="card"><b>${b.className} — ${b.termName}</b><div class="muted">${b.remarks.length} remarks · uploaded ${new Date(b.createdAt).toLocaleString()}</div></div>`).join('')||'<p class="muted">No reviews yet.</p>'}
 async function renderUsers(){
