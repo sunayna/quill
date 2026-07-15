@@ -7,8 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
-  --bg:#f5f7fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;
-  --critical:#9f1239;--required:#b45309;--warning:#a16207;--pass:#166534;--blue:#1d4ed8;
+  --bg:#f5f5fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;
+  --critical:#9f1239;--required:#b45309;--warning:#a16207;--pass:#166534;--blue:#312882;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink)}
@@ -18,7 +18,7 @@ header{height:64px;background:#fff;border-bottom:1px solid var(--line);display:f
 .shell{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 64px)}
 nav{background:#fff;border-right:1px solid var(--line);padding:18px 12px}
 .navbtn{width:100%;text-align:left;border:0;background:transparent;padding:11px 12px;border-radius:8px;margin:3px 0;cursor:pointer;color:var(--ink)}
-.navbtn.active,.navbtn:hover{background:#eef3ff;color:var(--blue)}
+.navbtn.active,.navbtn:hover{background:#eeedf8;color:var(--blue)}
 main{padding:24px;max-width:1400px;width:100%}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -60,7 +60,7 @@ pre{white-space:pre-wrap}
 </head>
 <body>
 <header>
-  <div class="brand">Quill <span class="muted">Prototype</span></div>
+  <a href="/" style="display:flex;align-items:center;text-decoration:none"><img src="/logo.png" alt="Quill" style="height:44px"></a>
   <div class="header-actions">
     <span class="muted" id="currentUser"></span>
     <a href="/logout" style="font-size:13px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px">Sign out</a>
