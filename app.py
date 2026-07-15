@@ -30,10 +30,18 @@ _validator = _load_module("validator", _ROOT / "deterministic-validator" / "vali
 _reviewer = _load_module("reviewer", _ROOT / "llm-reviewer" / "reviewer.py")
 
 RUBRIC_PATH = _ROOT / "rubric" / "report_remark_rubric.json"
+ACTIVE_RUBRIC_PATH = _ROOT / "rubric" / "active_rubric.json"
 SYSTEM_PROMPT_PATH = _ROOT / "prompts" / "system_prompt.md"
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 
-rubric = json.loads(RUBRIC_PATH.read_text(encoding="utf-8"))
+
+def _load_rubric():
+    if ACTIVE_RUBRIC_PATH.exists():
+        return json.loads(ACTIVE_RUBRIC_PATH.read_text(encoding="utf-8"))
+    return json.loads(RUBRIC_PATH.read_text(encoding="utf-8"))
+
+
+rubric = _load_rubric()
 system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
 _SEVERITY_RANK = {"critical": 3, "required": 2, "warning": 1}
@@ -263,6 +271,30 @@ def api_users_post():
         return jsonify({"error": "Email already exists"}), 409
 
 
+# ── API: rubric ────────────────────────────────────────────────────────────────
+
+@app.route("/api/rubric", methods=["GET"])
+@login_required
+def api_rubric_get():
+    return jsonify(_load_rubric())
+
+
+@app.route("/api/rubric", methods=["POST"])
+@login_required
+def api_rubric_post():
+    if current_user.role != "admin":
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(force=True) or {}
+    if not isinstance(data.get("categories"), list):
+        return jsonify({"error": "Invalid rubric: missing categories array"}), 400
+    ACTIVE_RUBRIC_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    global rubric
+    rubric = data
+    return jsonify({"ok": True})
+
+
 # ── API: review ────────────────────────────────────────────────────────────────
 
 @app.route("/api/review", methods=["POST"])
@@ -304,8 +336,11 @@ def _normalize_rows(raw_rows):
     normalized = []
     for row in raw_rows:
         norm = {k.strip().lower().replace(" ", "_"): str(v).strip() for k, v in row.items()}
-        if "teacher_remark" in norm and "remark" not in norm:
-            norm["remark"] = norm["teacher_remark"]
+        for alias in ("teacher's_comments", "teacher_remark", "remarks"):
+            if alias in norm and "remark" not in norm:
+                norm["remark"] = norm[alias]
+        if "name" in norm and "student_name" not in norm:
+            norm["student_name"] = norm["name"]
         if "pronouns" in norm and "pronoun" not in norm:
             norm["pronoun"] = norm["pronouns"]
         normalized.append(norm)
