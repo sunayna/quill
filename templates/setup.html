@@ -5,25 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Set up Quill</title>
 <style>
-:root{--bg:#f5f7fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;--blue:#1d4ed8;}
+:root{--bg:#f5f5fb;--card:#fff;--ink:#1d2733;--muted:#657180;--line:#dfe5ec;--blue:#312882;}
 *{box-sizing:border-box}
-body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:40px;width:100%;max-width:420px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
-.brand{font-size:26px;font-weight:700;margin-bottom:28px}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px 16px}
+.wrap{display:flex;flex-direction:column;align-items:center;width:100%;max-width:420px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:40px;width:100%;box-shadow:0 1px 4px rgba(0,0,0,.06)}
 h1{margin:0 0 6px;font-size:20px;font-weight:600}
 p{margin:0 0 20px;color:var(--muted);font-size:13px}
-.notice{background:#eff6ff;border:1px solid #bfdbfe;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:8px}
+.notice{background:#eeedf8;border:1px solid #c4c0ed;padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:8px}
 label{font-size:13px;font-weight:600;display:block;margin-bottom:6px;margin-top:16px}
 input{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;font:inherit;font-size:14px}
 input:focus{outline:2px solid var(--blue);border-color:transparent}
 .primary{width:100%;background:var(--blue);color:#fff;border:0;border-radius:8px;padding:12px;cursor:pointer;font:inherit;font-size:14px;font-weight:600;margin-top:24px}
-.primary:hover{background:#1e40af}
+.primary:hover{background:#251f6b}
 .error{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;padding:10px 12px;border-radius:8px;font-size:13px;margin-top:16px}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="brand">Quill</div>
+<div class="wrap">
+  <img src="/logo.png" alt="Quill" style="height:160px;margin-bottom:28px">
+  <div class="card">
   <h1>Create administrator account</h1>
   <p>One-time setup. You'll use this account to add teachers and manage sections.</p>
   <div class="notice">This page is only accessible before any accounts exist.</div>
@@ -37,6 +38,7 @@ input:focus{outline:2px solid var(--blue);border-color:transparent}
     <input id="password" type="password" name="password" required autocomplete="new-password" minlength="8" />
     <button class="primary" type="submit">Create account</button>
   </form>
+  </div>
 </div>
 </body>
 </html>
