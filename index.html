@@ -336,15 +336,19 @@ function save(){localStorage.setItem('rr_batches',JSON.stringify(batches))}
 function renderReviewCards(){
   const c=document.getElementById('reviewCards');
   if(!batches.length){c.innerHTML='<div class="card"><p class="muted">No reviews yet.</p></div>';return}
-  c.innerHTML=batches.map(b=>`<div class="card"><div class="toolbar"><div><h3>${b.className} — ${b.termName}</h3><div class="muted">${b.remarks.length} remarks · Rubric ${b.rubricVersion}</div></div><button class="primary" onclick="openBatch('${b.id}')">Continue review</button></div></div>`).join('');
+  c.innerHTML=batches.map(b=>`<div class="card"><div class="toolbar"><div><h3>${b.className} — ${b.termName}</h3><div class="muted">${b.remarks.length} remarks · ${new Date(b.createdAt).toLocaleDateString()}</div></div><div class="row"><button class="secondary" onclick="exportBatchCSV('${b.id}')">Download CSV</button><button class="primary" onclick="openBatch('${b.id}')">Continue review</button></div></div></div>`).join('');
 }
 function openBatch(id){activeBatchId=id;showClassReview()}
 function activeBatch(){return batches.find(b=>b.id===activeBatchId)}
 function showClassReview(){
-  const b=activeBatch(); if(!b){showPage('myReviews');return}
-  showPage('classReview'); document.getElementById('classTitle').textContent=`${b.className} — ${b.termName}`;
+  const b=activeBatch();
+  const backPage=CURRENT_USER&&CURRENT_USER.role==='admin'?'allReviews':'myReviews';
+  if(!b){showPage(backPage);return}
+  showPage('classReview');
+  document.getElementById('classTitle').textContent=`${b.className} — ${b.termName}`;
   document.getElementById('classCrumb').textContent=`${b.className} — ${b.termName}`;
   document.getElementById('classSubtitle').textContent=`${b.remarks.length} remarks · Rubric ${b.rubricVersion}`;
+  document.querySelector('#classReview .breadcrumb').innerHTML=`<span class="link" onclick="showPage('${backPage}')">← Back</span> &rsaquo; <span id="classCrumb">${b.className} — ${b.termName}</span>`;
   renderRemarkTable();
 }
 function renderRemarkTable(){
@@ -449,6 +453,7 @@ function exportCSV(){
   const blob=new Blob([[header,...dataRows].join('\n')],{type:'text/csv'}),a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=`${b.className}_${b.termName}_corrected.csv`;a.click();
 }
+function exportBatchCSV(id){const prev=activeBatchId;activeBatchId=id;exportCSV();activeBatchId=prev;}
 function downloadTemplate(){
   const csv='Sr.No,Admission No.,Name,Teacher\'s Comments\n1,ADM001,Student Name Here,Write the teacher\'s remark here.\n2,ADM002,Student Name Here,Write the teacher\'s remark here.';
   const blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');
@@ -516,7 +521,24 @@ function renderAdmin(){
   const freq={};remarks.flatMap(r=>r.issues).forEach(i=>freq[i.ruleId]=(freq[i.ruleId]||0)+1);
   document.getElementById('commonIssues').innerHTML=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`<p><b>${ruleTitle[k]||k}</b> — ${v} flags</p>`).join('')||'<p class="muted">No data yet.</p>';
 }
-function renderAllReviews(){document.getElementById('allReviewList').innerHTML=batches.map(b=>`<div class="card"><b>${b.className} — ${b.termName}</b><div class="muted">${b.remarks.length} remarks · uploaded ${new Date(b.createdAt).toLocaleString()}</div></div>`).join('')||'<p class="muted">No reviews yet.</p>'}
+function renderAllReviews(){
+  const el=document.getElementById('allReviewList');
+  if(!batches.length){el.innerHTML='<p class="muted">No reviews yet.</p>';return}
+  el.innerHTML=batches.map(b=>{
+    const open=b.remarks.filter(r=>r.issues.some(i=>i.status==='open')).length;
+    const done=b.remarks.length-open;
+    return `<div class="card"><div class="toolbar">
+      <div>
+        <b>${b.className} — ${b.termName}</b>
+        <div class="muted" style="margin-top:4px">${b.remarks.length} remarks &nbsp;&middot;&nbsp; ${done} resolved &nbsp;&middot;&nbsp; ${open} with open issues &nbsp;&middot;&nbsp; ${new Date(b.createdAt).toLocaleDateString()}</div>
+      </div>
+      <div class="row">
+        <button class="secondary" onclick="exportBatchCSV('${b.id}')">Download CSV</button>
+        <button class="primary" onclick="openBatch('${b.id}')">Open</button>
+      </div>
+    </div></div>`;
+  }).join('');
+}
 async function renderUsers(){
   const resp=await fetch('/api/users');
   if(!resp.ok) return;
