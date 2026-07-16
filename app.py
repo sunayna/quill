@@ -85,6 +85,38 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admission_no TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            pronouns TEXT DEFAULT '',
+            section TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS student_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admission_no TEXT NOT NULL,
+            term TEXT NOT NULL,
+            rule_id TEXT NOT NULL,
+            claim TEXT NOT NULL,
+            evidence_text TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            added_by TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS student_goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admission_no TEXT NOT NULL,
+            name TEXT NOT NULL,
+            term TEXT NOT NULL,
+            goal_text TEXT NOT NULL,
+            source_remark TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            addressed_term TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     if conn.execute("SELECT COUNT(*) FROM sections").fetchone()[0] == 0:
         conn.executemany(
@@ -320,6 +352,115 @@ def api_review():
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── API: student profiles ──────────────────────────────────────────────────────
+
+@app.route("/api/students/<admission_no>", methods=["GET"])
+@login_required
+def api_student_get(admission_no):
+    conn = get_db()
+    student = conn.execute("SELECT * FROM students WHERE admission_no = ?", (admission_no,)).fetchone()
+    evidence = conn.execute(
+        "SELECT * FROM student_evidence WHERE admission_no = ? ORDER BY created_at DESC",
+        (admission_no,),
+    ).fetchall()
+    goals = conn.execute(
+        "SELECT * FROM student_goals WHERE admission_no = ? ORDER BY created_at DESC",
+        (admission_no,),
+    ).fetchall()
+    conn.close()
+    if not student:
+        return jsonify({"error": "Student not found"}), 404
+    return jsonify({
+        "student": dict(student),
+        "evidence": [dict(e) for e in evidence],
+        "goals": [dict(g) for g in goals],
+    })
+
+
+@app.route("/api/students/<admission_no>/evidence", methods=["GET"])
+@login_required
+def api_student_evidence_get(admission_no):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM student_evidence WHERE admission_no = ? ORDER BY created_at DESC",
+        (admission_no,),
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/students/<admission_no>/evidence", methods=["POST"])
+@login_required
+def api_student_evidence_post(admission_no):
+    data = request.get_json(force=True) or {}
+    term = data.get("term", "").strip()
+    rule_id = data.get("rule_id", "").strip()
+    claim = data.get("claim", "").strip()
+    evidence_text = data.get("evidence_text", "").strip()
+    name = data.get("name", "").strip()
+    if not (term and rule_id and claim):
+        return jsonify({"error": "term, rule_id and claim are required"}), 400
+    conn = get_db()
+    if name:
+        conn.execute(
+            "INSERT INTO students (admission_no, name) VALUES (?, ?)"
+            " ON CONFLICT(admission_no) DO UPDATE SET updated_at = CURRENT_TIMESTAMP",
+            (admission_no, name),
+        )
+    status = "evidenced" if evidence_text else "pending"
+    conn.execute(
+        "INSERT INTO student_evidence"
+        " (admission_no, term, rule_id, claim, evidence_text, status, added_by)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (admission_no, term, rule_id, claim, evidence_text, status, current_user.name),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "status": status})
+
+
+@app.route("/api/students/<admission_no>/goals", methods=["GET"])
+@login_required
+def api_student_goals_get(admission_no):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM student_goals WHERE admission_no = ? ORDER BY created_at DESC",
+        (admission_no,),
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/students/<admission_no>/goals", methods=["POST"])
+@login_required
+def api_student_goals_post(admission_no):
+    data = request.get_json(force=True) or {}
+    goals = data.get("goals", [])
+    term = data.get("term", "").strip()
+    name = data.get("name", "").strip()
+    source_remark = data.get("source_remark", "").strip()
+    if not (goals and term):
+        return jsonify({"error": "goals and term are required"}), 400
+    conn = get_db()
+    if name:
+        conn.execute(
+            "INSERT INTO students (admission_no, name) VALUES (?, ?)"
+            " ON CONFLICT(admission_no) DO UPDATE SET updated_at = CURRENT_TIMESTAMP",
+            (admission_no, name),
+        )
+    for goal in goals:
+        if goal.strip():
+            conn.execute(
+                "INSERT INTO student_goals"
+                " (admission_no, name, term, goal_text, source_remark)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (admission_no, name, term, goal.strip(), source_remark),
+            )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True, "count": len([g for g in goals if g.strip()])})
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

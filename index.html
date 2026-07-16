@@ -371,13 +371,36 @@ function openRemark(id){
   const isFirst=idx===0, isLast=idx===b.remarks.length-1;
   const prevBtn=document.getElementById('prevBtn'), nextBtn=document.getElementById('nextBtn');
   prevBtn.style.visibility=isFirst?'hidden':'visible';
-  if(isLast){nextBtn.textContent='Done';nextBtn.onclick=()=>{saveRemark();showClassReview();};}
+  if(isLast){nextBtn.textContent='Done';nextBtn.onclick=()=>{saveRemark();logGoalsForRemark(currentRemark(),activeBatch().termName);showClassReview();};}
   else{nextBtn.textContent='Save and next';nextBtn.onclick=nextRemark;}
 }
+let _currentOpenIssues=[];
 function renderIssues(r){
   const open=r.issues.filter(i=>i.status==='open');
+  _currentOpenIssues=open;
   const sevLabel=s=>({critical:'Critical',required:'Required',warning:'Advisory'})[s]||s;
-  document.getElementById('issueList').innerHTML=open.length?open.map((i,idx)=>`<div class="issue ${i.severity}"><div class="issue-title"><span class="badge badge-${i.severity}" style="font-size:11px;margin-right:8px">${sevLabel(i.severity)}</span><b>${i.explanation}</b></div>${i.phrase?`<p class="muted" style="font-size:13px;margin:6px 0 0">Flagged phrase: <i>"${i.phrase}"</i></p>`:''}<p class="muted" style="margin:8px 0 0">${i.action}</p><div class="row" style="margin-top:10px"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button><button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Not applicable</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div></div>`).join(''):'<span class="badge badge-pass">No open issues</span>';
+  const needsEvidence=i=>/^B[1-5]$/.test(i.ruleId)||/verify|check.*roster|check.*record/i.test(i.action);
+  if(!open.length){document.getElementById('issueList').innerHTML='<span class="badge badge-pass">No open issues</span>';return;}
+  document.getElementById('issueList').innerHTML=open.map((i,idx)=>{
+    const evBtn=needsEvidence(i)?`<button class="secondary" onclick="toggleEvidenceForm(${idx})">Add to profile</button>`:'';
+    const evForm=needsEvidence(i)?`<div id="ef_${idx}" class="hidden" style="margin-top:10px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Evidence (leave blank to flag as pending)</label><textarea id="ei_${idx}" style="width:100%;min-height:60px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;padding:8px;resize:vertical" placeholder="e.g. Confirmed by class register — student is on the Football team"></textarea><div class="row" style="margin-top:8px;gap:10px"><button class="primary" style="font-size:13px;padding:7px 14px" onclick="saveEvidence(${idx})">Save to profile</button><span id="es_${idx}" class="muted" style="font-size:12px"></span></div></div>`:'';
+    return `<div class="issue ${i.severity}"><div class="issue-title"><span class="badge badge-${i.severity}" style="font-size:11px;margin-right:8px">${sevLabel(i.severity)}</span><b>${i.explanation}</b></div>${i.phrase?`<p class="muted" style="font-size:13px;margin:6px 0 0">Flagged phrase: <i>"${i.phrase}"</i></p>`:''}<p class="muted" style="margin:8px 0 0">${i.action}</p><div class="row" style="margin-top:10px"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button>${evBtn}<button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Dismiss</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div>${evForm}</div>`;
+  }).join('');
+}
+function toggleEvidenceForm(idx){document.getElementById('ef_'+idx).classList.toggle('hidden');}
+async function saveEvidence(idx){
+  const r=currentRemark(),b=activeBatch(),issue=_currentOpenIssues[idx];
+  const admNo=r.admissionNo,evText=(document.getElementById('ei_'+idx).value||'').trim();
+  const statusEl=document.getElementById('es_'+idx);
+  if(!admNo){statusEl.textContent='No admission number — cannot save to profile.';return;}
+  const payload={term:b.termName,rule_id:issue.ruleId,claim:issue.explanation+(issue.phrase?` ("${issue.phrase}")`:''),evidence_text:evText,name:r.name};
+  statusEl.textContent='Saving…';
+  try{
+    const resp=await fetch(`/api/students/${encodeURIComponent(admNo)}/evidence`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!resp.ok){const err=await resp.json();statusEl.textContent='Error: '+(err.error||'Save failed');return;}
+    statusEl.textContent=evText?'Evidence saved to profile.':'Flagged as pending — no evidence yet.';
+    setTimeout(()=>decideIssue(idx,evText?'evidenced':'pending_evidence'),900);
+  }catch(e){statusEl.textContent='Network error.';}
 }
 function currentRemark(){const b=activeBatch();return b.remarks.find(r=>r.id===activeRemarkId)}
 function updateCharCount(){const n=charCount(document.getElementById('editedText').value);document.getElementById('charCount').textContent=`${n} / 1000 characters`}
@@ -387,8 +410,19 @@ function decideIssue(openIndex,decision){
   const r=currentRemark(); const open=r.issues.filter(i=>i.status==='open'); open[openIndex].status=decision; r.status=statusFor(r.issues.filter(i=>i.status==='open')); save(); openRemark(r.id);
 }
 function previousRemark(){saveRemark();const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);openRemark(b.remarks[Math.max(0,i-1)].id)}
-function nextRemark(){saveRemark();const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);openRemark(b.remarks[Math.min(b.remarks.length-1,i+1)].id)}
+function nextRemark(){saveRemark();const b=activeBatch(),r=currentRemark();logGoalsForRemark(r,b.termName);const i=b.remarks.findIndex(x=>x.id===activeRemarkId);openRemark(b.remarks[Math.min(b.remarks.length-1,i+1)].id)}
 
+function extractGoalSentences(text){
+  const sentences=text.match(/[^.!?]+[.!?]*/g)||[];
+  const devPatterns=[/would benefit from/i,/is encouraged to/i,/continuing to practise/i,/greater attention to/i,/regular .{3,30} will support/i,/encouraged to/i,/to strengthen/i,/should (?:focus|work|aim)/i,/to develop/i];
+  return sentences.map(s=>s.trim()).filter(s=>s.length>15&&devPatterns.some(p=>p.test(s)));
+}
+async function logGoalsForRemark(r,termName){
+  if(!r||!r.admissionNo||!r.currentText)return;
+  const goals=extractGoalSentences(r.currentText);
+  if(!goals.length)return;
+  fetch(`/api/students/${encodeURIComponent(r.admissionNo)}/goals`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({goals,term:termName,name:r.name,source_remark:r.currentText.slice(0,300)})}).catch(()=>{});
+}
 function parseCSV(text){
   const rows=[];let row=[],cell='',q=false;
   for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c==='"'&&q&&n==='"'){cell+='"';i++}else if(c==='"'){q=!q}else if(c===','&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&n==='\n')i++;row.push(cell);if(row.some(x=>x!==''))rows.push(row);row=[];cell=''}else cell+=c}

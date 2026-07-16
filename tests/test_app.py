@@ -408,3 +408,88 @@ class TestApiRubric:
     def test_unauthenticated_cannot_get_rubric(self, client):
         resp = client.get("/api/rubric")
         assert resp.status_code == 302
+
+
+# ── /api/students ──────────────────────────────────────────────────────────────
+
+class TestApiStudentProfile:
+    def test_student_not_found_returns_404(self, admin_client):
+        resp = admin_client.get("/api/students/NOTEXIST")
+        assert resp.status_code == 404
+
+    def test_post_evidence_creates_student_and_returns_evidenced(self, admin_client):
+        resp = admin_client.post("/api/students/ADM001/evidence", json={
+            "term": "Term 2", "rule_id": "B3", "name": "Aarav Sharma",
+            "claim": "Grades have improved", "evidence_text": "Confirmed by academic records",
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "evidenced"
+
+    def test_post_evidence_without_text_is_pending(self, admin_client):
+        resp = admin_client.post("/api/students/ADM002/evidence", json={
+            "term": "Term 2", "rule_id": "B4", "name": "Priya Mehta",
+            "claim": "Activity claim", "evidence_text": "",
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "pending"
+
+    def test_post_evidence_missing_fields_returns_400(self, admin_client):
+        resp = admin_client.post("/api/students/ADM003/evidence", json={"term": "Term 2"})
+        assert resp.status_code == 400
+
+    def test_get_evidence_returns_logged_items(self, admin_client):
+        admin_client.post("/api/students/ADM004/evidence", json={
+            "term": "Term 1", "rule_id": "B2", "name": "Test Student",
+            "claim": "Pronoun check", "evidence_text": "Verified",
+        })
+        data = admin_client.get("/api/students/ADM004/evidence").get_json()
+        assert isinstance(data, list)
+        assert data[0]["claim"] == "Pronoun check"
+
+    def test_post_goals_returns_correct_count(self, admin_client):
+        resp = admin_client.post("/api/students/ADM005/goals", json={
+            "term": "Term 2", "name": "Test Student",
+            "goals": ["Would benefit from regular reading practice."],
+            "source_remark": "Full remark text here.",
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()["count"] == 1
+
+    def test_post_goals_missing_term_returns_400(self, admin_client):
+        resp = admin_client.post("/api/students/ADM006/goals", json={
+            "goals": ["Some goal"], "name": "Student",
+        })
+        assert resp.status_code == 400
+
+    def test_get_goals_returns_logged_items(self, admin_client):
+        admin_client.post("/api/students/ADM007/goals", json={
+            "term": "Term 1", "name": "Test Student",
+            "goals": ["Encouraged to practise handwriting."],
+        })
+        data = admin_client.get("/api/students/ADM007/goals").get_json()
+        assert any("handwriting" in g["goal_text"] for g in data)
+
+    def test_get_profile_returns_student_evidence_and_goals(self, admin_client):
+        admin_client.post("/api/students/ADM008/evidence", json={
+            "term": "Term 2", "rule_id": "B3", "name": "Full Profile Student",
+            "claim": "Academic claim", "evidence_text": "Verified",
+        })
+        admin_client.post("/api/students/ADM008/goals", json={
+            "term": "Term 2", "name": "Full Profile Student",
+            "goals": ["Would benefit from extra reading."],
+        })
+        data = admin_client.get("/api/students/ADM008").get_json()
+        assert data["student"]["name"] == "Full Profile Student"
+        assert len(data["evidence"]) == 1
+        assert len(data["goals"]) == 1
+
+    def test_teacher_can_post_evidence(self, teacher_client):
+        resp = teacher_client.post("/api/students/ADM009/evidence", json={
+            "term": "Term 2", "rule_id": "B4", "name": "Teacher Student",
+            "claim": "Club membership", "evidence_text": "On Eco Club register",
+        })
+        assert resp.status_code == 200
+
+    def test_unauthenticated_cannot_access_student(self, client):
+        resp = client.get("/api/students/ADM001")
+        assert resp.status_code == 302
