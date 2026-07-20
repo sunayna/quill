@@ -299,14 +299,18 @@ function deterministicReview(student){
   if(/  +/.test(text)) add('I3','required','Repeated spaces','The remark contains extra spaces.','Remove the extra spaces.');
   const sentences=text.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length>20);
   const seen=new Set(); for(const s of sentences){const k=s.toLowerCase(); if(seen.has(k)) add('H2','required',s,'This sentence is repeated.','Remove the duplicated sentence.'); seen.add(k);}
-  if(student.name && !text.toLowerCase().includes(student.name.toLowerCase())) add('B1','critical','Student name not found','The remark may not refer clearly to the selected student.','Verify the student identity.');
-  const names=(text.match(/\b[A-Z][a-z]{2,}\b/g)||[]).filter(n=>!['Grade','Term','Sports','Day','English','Hindi','Mathematics','Science','Khoj','Eco','Club','Student','Council'].includes(n));
-  const otherNames=[...new Set(names.filter(n=>student.name && n!==student.name && !['With','Moving','During','Regular','Continued','Reviewing','Although','However','Additionally'].includes(n)))];
-  if(otherNames.length>2) add('B1','critical',otherNames.slice(0,3).join(', '),'Another student name may be present.','Verify all names in the remark.');
+  const studentNameParts=student.name?student.name.trim().split(/\s+/).filter(p=>p.length>1):[];
+  const nameFound=student.name&&studentNameParts.some(p=>new RegExp('\\b'+p+'\\b','i').test(text));
+  if(student.name&&!nameFound) add('B1','critical','Student name not found','The remark may not refer clearly to the selected student.','Verify the student identity.');
+  const NON_NAMES=new Set(['Grade','Term','Sports','Day','English','Hindi','Mathematics','Science','Khoj','Eco','Club','Student','Council','His','Her','Hers','Him','She','They','Their','Them','Reading','Writing','Spelling','Speaking','Listening','Drawing','Painting','Swimming','Running','Dancing','Singing','Assembly','Festival','Module','Expedition','Annual','Digital','Literacy','Physical','Education','Visual','Arts','Performing','Sanskrit','Social','Cricket','Football','Basketball','Volleyball','Karate','Yoga','Track','Field','Table','Tennis','Bully','Buddy','LEAD','Collective','Cyber','Safety','Ambassador','Transition','Event','Management','With','Moving','During','Regular','Continued','Reviewing','Although','However','Additionally','While','Having','Being','Showing','Throughout','Another','Further','Greater','Stronger','Higher','Lower','Wider','Deeper','Programme','Activity','Project','Round','Final','Class','Week','Month','Year','Special','Cultural','Community','Leadership','January','February','March','April','June','July','August','September','October','November','December','Monday','Tuesday','Wednesday','Thursday','Friday']);
+  studentNameParts.forEach(p=>NON_NAMES.add(p));
+  const midSentCapWords=[];for(const sent of text.split(/(?<=[.!?])\s+/)){const words=sent.trim().split(/\s+/);for(let j=1;j<words.length;j++){const m=words[j].match(/^([A-Z][a-z]{2,})\b/);if(m&&!NON_NAMES.has(m[1]))midSentCapWords.push(m[1]);}}
+  const otherNames=[...new Set(midSentCapWords)];
+  if(otherNames.length>0) add('B1','critical',otherNames.slice(0,3).join(', '),'Another student name may be present.','Verify all names in the remark.');
   if(student.pronouns){
     const p=student.pronouns.toLowerCase();
-    if(p.includes('he') && /\b(she|her|hers)\b/i.test(text)) add('B2','critical',text.match(/\b(she|her|hers)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
-    if(p.includes('she') && /\b(he|him|his)\b/i.test(text)) add('B2','critical',text.match(/\b(he|him|his)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
+    if(/\bhe\b/.test(p) && /\b(she|her|hers)\b/i.test(text)) add('B2','critical',text.match(/\b(she|her|hers)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
+    if(/\bshe\b/.test(p) && /\b(he|him|his)\b/i.test(text)) add('B2','critical',text.match(/\b(he|him|his)\b/i)[0],'Pronoun may conflict with roster information.','Verify and correct the pronoun.');
   }
   for(const {rule,term} of phraseRules){
     const re=new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');
@@ -384,11 +388,13 @@ function renderIssues(r){
   if(!open.length){document.getElementById('issueList').innerHTML='<span class="badge badge-pass">No open issues</span>';return;}
   document.getElementById('issueList').innerHTML=open.map((i,idx)=>{
     const evBtn=needsEvidence(i)?`<button class="secondary" onclick="toggleEvidenceForm(${idx})">Add to profile</button>`:'';
+    const insertBtn=(i.ruleId==='B1'&&i.phrase==='Student name not found'&&r.name)?`<button class="secondary" onclick="insertStudentName()">Insert name</button>`:'';
     const evForm=needsEvidence(i)?`<div id="ef_${idx}" class="hidden" style="margin-top:10px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Evidence (leave blank to flag as pending)</label><textarea id="ei_${idx}" style="width:100%;min-height:60px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;padding:8px;resize:vertical" placeholder="e.g. Confirmed by class register — student is on the Football team"></textarea><div class="row" style="margin-top:8px;gap:10px"><button class="primary" style="font-size:13px;padding:7px 14px" onclick="saveEvidence(${idx})">Save to profile</button><span id="es_${idx}" class="muted" style="font-size:12px"></span></div></div>`:'';
-    return `<div class="issue ${i.severity}"><div class="issue-title"><span class="badge badge-${i.severity}" style="font-size:11px;margin-right:8px">${sevLabel(i.severity)}</span><b>${i.explanation}</b></div>${i.phrase?`<p class="muted" style="font-size:13px;margin:6px 0 0">Flagged phrase: <i>"${i.phrase}"</i></p>`:''}<p class="muted" style="margin:8px 0 0">${i.action}</p><div class="row" style="margin-top:10px"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button>${evBtn}<button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Dismiss</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div>${evForm}</div>`;
+    return `<div class="issue ${i.severity}"><div class="issue-title"><span class="badge badge-${i.severity}" style="font-size:11px;margin-right:8px">${sevLabel(i.severity)}</span><b>${i.explanation}</b></div>${i.phrase?`<p class="muted" style="font-size:13px;margin:6px 0 0">Flagged phrase: <i>"${i.phrase}"</i></p>`:''}<p class="muted" style="margin:8px 0 0">${i.action}</p><div class="row" style="margin-top:10px"><button class="secondary" onclick="decideIssue(${idx},'corrected')">Corrected</button>${evBtn}${insertBtn}<button class="secondary" onclick="decideIssue(${idx},'not_applicable')">Dismiss</button><button class="secondary" onclick="decideIssue(${idx},'ask_admin')">Ask admin</button></div>${evForm}</div>`;
   }).join('');
 }
 function toggleEvidenceForm(idx){document.getElementById('ef_'+idx).classList.toggle('hidden');}
+function insertStudentName(){const r=currentRemark();if(!r||!r.name)return;const ta=document.getElementById('editedText');ta.value=r.name+' '+ta.value.trimStart();updateCharCount();recheckRemark();}
 async function saveEvidence(idx){
   const r=currentRemark(),b=activeBatch(),issue=_currentOpenIssues[idx];
   const admNo=r.admissionNo,evText=(document.getElementById('ei_'+idx).value||'').trim();
