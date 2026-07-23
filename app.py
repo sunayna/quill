@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -116,6 +117,14 @@ def init_db():
             status TEXT DEFAULT 'open',
             addressed_term TEXT DEFAULT '',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS review_batches (
+            id TEXT PRIMARY KEY,
+            class_name TEXT NOT NULL,
+            term_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT DEFAULT '',
+            data TEXT NOT NULL
         );
     """)
     if conn.execute("SELECT COUNT(*) FROM sections").fetchone()[0] == 0:
@@ -348,10 +357,70 @@ def api_review():
             llm_results = _reviewer.run_review(
                 norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
             )
+            llm_results = _filter_b2_issues(llm_results, norm_rows)
         results = _merge_results(det_results, llm_results)
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── API: review batches ─────────────────────────────────────────────────────────
+
+@app.route("/api/review-batches", methods=["GET"])
+@login_required
+def api_review_batches_list():
+    conn = get_db()
+    rows = conn.execute("SELECT data FROM review_batches ORDER BY created_at").fetchall()
+    conn.close()
+    return jsonify([json.loads(r["data"]) for r in rows])
+
+
+@app.route("/api/review-batches", methods=["POST"])
+@login_required
+def api_review_batches_create():
+    b = request.get_json(force=True)
+    for field in ("id", "className", "termName"):
+        if not b.get(field):
+            return jsonify({"error": f"Missing {field}"}), 400
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO review_batches (id, class_name, term_name, created_at, created_by, data) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (b["id"], b["className"], b["termName"], b.get("createdAt", ""), current_user.name, json.dumps(b)),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True}), 201
+
+
+@app.route("/api/review-batches/<batch_id>", methods=["PUT"])
+@login_required
+def api_review_batches_update(batch_id):
+    b = request.get_json(force=True)
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE review_batches SET class_name = ?, term_name = ?, data = ? WHERE id = ?",
+        (b.get("className", ""), b.get("termName", ""), json.dumps(b), batch_id),
+    )
+    conn.commit()
+    found = cur.rowcount > 0
+    conn.close()
+    if not found:
+        return jsonify({"error": "Review not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/review-batches/<batch_id>", methods=["DELETE"])
+@login_required
+def api_review_batches_delete(batch_id):
+    conn = get_db()
+    cur = conn.execute("DELETE FROM review_batches WHERE id = ?", (batch_id,))
+    conn.commit()
+    found = cur.rowcount > 0
+    conn.close()
+    if not found:
+        return jsonify({"error": "Review not found"}), 404
+    return jsonify({"ok": True})
 
 
 # ── API: student profiles ──────────────────────────────────────────────────────
@@ -486,6 +555,43 @@ def _normalize_rows(raw_rows):
             norm["pronoun"] = norm["pronouns"]
         normalized.append(norm)
     return normalized
+
+
+_HE_FAMILY = re.compile(r'\b(he|him|his)\b', re.IGNORECASE)
+_SHE_FAMILY = re.compile(r'\b(she|her|hers)\b', re.IGNORECASE)
+
+
+def _b2_is_genuine(remark, pronoun):
+    """
+    Independently verify a B2 pronoun issue rather than trusting the LLM's
+    own judgement — keeps only issues backed by an actual internal
+    he/she contradiction in the remark, or a contradiction with an
+    explicit roster pronoun. Drops any "can't verify without roster" noise.
+    """
+    remark = remark or ""
+    pronoun = (pronoun or "").lower()
+    he_family = _HE_FAMILY.search(remark)
+    she_family = _SHE_FAMILY.search(remark)
+    if pronoun:
+        if re.search(r'\bhe\b', pronoun) and she_family:
+            return True
+        if re.search(r'\bshe\b', pronoun) and he_family:
+            return True
+        return False
+    return bool(he_family and she_family)
+
+
+def _filter_b2_issues(llm_results, norm_rows):
+    row_by_name = {r.get("student_name"): r for r in norm_rows}
+    for result in llm_results:
+        row = row_by_name.get(result.get("student_name"), {})
+        remark = row.get("remark", "")
+        pronoun = row.get("pronoun", "")
+        result["issues"] = [
+            issue for issue in result.get("issues", [])
+            if issue.get("rule_id") != "B2" or _b2_is_genuine(remark, pronoun)
+        ]
+    return llm_results
 
 
 def _merge_results(det_results, llm_results):

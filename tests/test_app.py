@@ -345,12 +345,13 @@ class TestApiReview:
         assert resp.status_code == 200
 
     def test_status_critical_issue(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Pronouns": "he/him", "Teacher Remark": "He works hard and we look forward to seeing her continue to grow."}]
         llm = [{"student_name": "Aarav Sharma", "status": "critical_issue", "issues": [
-            {"rule_id": "B2", "severity": "critical", "exact_phrase": "she", "explanation": "pronoun mismatch", "teacher_action": "fix", "requires_record_verification": False}
+            {"rule_id": "B2", "severity": "critical", "exact_phrase": "her", "explanation": "pronoun mismatch", "teacher_action": "fix", "requires_record_verification": False}
         ], "character_count": 38}]
         with patch.object(flask_app._validator, "run_batch", return_value=DET_RESULT), \
              patch.object(flask_app._reviewer, "run_review", return_value=llm):
-            data = admin_client.post("/api/review", json={"rows": ROWS}).get_json()
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
         assert data[0]["status"] == "critical_issue"
 
     def test_no_issues_gives_no_major_issues(self, admin_client):
@@ -361,6 +362,134 @@ class TestApiReview:
             data = admin_client.post("/api/review", json={"rows": ROWS}).get_json()
         assert data[0]["status"] == "no_major_issues"
         assert data[0]["issues"] == []
+
+
+class TestB2Filter:
+    """
+    Independent backend guardrail on B2 pronoun issues — the LLM doesn't
+    reliably honor the "don't flag unverifiable pronouns" rubric instruction,
+    so this re-verifies every B2 issue against the actual remark text/roster
+    before it reaches the teacher.
+    """
+    def _b2_issue(self, phrase="her"):
+        return {"rule_id": "B2", "severity": "critical", "exact_phrase": phrase,
+                "explanation": "No roster data is provided, so pronoun correctness cannot be verified.",
+                "teacher_action": "Verify pronouns against the class roster.", "requires_record_verification": False}
+
+    def test_drops_unverifiable_flag_when_no_roster_and_no_contradiction(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Teacher Remark": "He works hard and participates well."}]
+        llm = [{"student_name": "Aarav Sharma", "status": "critical_issue", "issues": [self._b2_issue()], "character_count": 38}]
+        with patch.object(flask_app._validator, "run_batch", return_value=[{"student_name": "Aarav Sharma", "issues": [], "character_count": 38}]), \
+             patch.object(flask_app._reviewer, "run_review", return_value=llm):
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
+        assert data[0]["issues"] == []
+        assert data[0]["status"] == "no_major_issues"
+
+    def test_keeps_genuine_internal_contradiction(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Teacher Remark": "He works hard and we look forward to seeing her continue to grow."}]
+        llm = [{"student_name": "Aarav Sharma", "status": "critical_issue", "issues": [self._b2_issue()], "character_count": 38}]
+        with patch.object(flask_app._validator, "run_batch", return_value=[{"student_name": "Aarav Sharma", "issues": [], "character_count": 38}]), \
+             patch.object(flask_app._reviewer, "run_review", return_value=llm):
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
+        assert len(data[0]["issues"]) == 1
+        assert data[0]["issues"][0]["rule_id"] == "B2"
+
+    def test_keeps_genuine_roster_contradiction(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Pronouns": "he/him", "Teacher Remark": "She works hard and participates well."}]
+        llm = [{"student_name": "Aarav Sharma", "status": "critical_issue", "issues": [self._b2_issue("She")], "character_count": 38}]
+        with patch.object(flask_app._validator, "run_batch", return_value=[{"student_name": "Aarav Sharma", "issues": [], "character_count": 38}]), \
+             patch.object(flask_app._reviewer, "run_review", return_value=llm):
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
+        assert len(data[0]["issues"]) == 1
+
+    def test_drops_flag_when_roster_matches_remark(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Pronouns": "he/him", "Teacher Remark": "He works hard and participates well."}]
+        llm = [{"student_name": "Aarav Sharma", "status": "critical_issue", "issues": [self._b2_issue("he")], "character_count": 38}]
+        with patch.object(flask_app._validator, "run_batch", return_value=[{"student_name": "Aarav Sharma", "issues": [], "character_count": 38}]), \
+             patch.object(flask_app._reviewer, "run_review", return_value=llm):
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
+        assert data[0]["issues"] == []
+
+    def test_non_b2_issues_unaffected(self, admin_client):
+        rows = [{"Student Name": "Aarav Sharma", "Teacher Remark": "He works hard and participates well."}]
+        llm = [{"student_name": "Aarav Sharma", "status": "needs_revision", "issues": [
+            {"rule_id": "A4", "severity": "required", "exact_phrase": "", "explanation": "No development point.", "teacher_action": "Add a growth point.", "requires_record_verification": False},
+            self._b2_issue(),
+        ], "character_count": 38}]
+        with patch.object(flask_app._validator, "run_batch", return_value=[{"student_name": "Aarav Sharma", "issues": [], "character_count": 38}]), \
+             patch.object(flask_app._reviewer, "run_review", return_value=llm):
+            data = admin_client.post("/api/review", json={"rows": rows}).get_json()
+        rule_ids = {i["rule_id"] for i in data[0]["issues"]}
+        assert rule_ids == {"A4"}
+
+
+# ── /api/review-batches ──────────────────────────────────────────────────────────
+
+SAMPLE_BATCH = {
+    "id": "batch-1",
+    "className": "Grade 6A",
+    "termName": "Term 1",
+    "createdAt": "2026-07-21T10:00:00.000Z",
+    "status": "in_progress",
+    "rubricVersion": "1.2",
+    "remarks": [{"id": "batch-1-0", "name": "Aarav Sharma", "srNo": "1", "admissionNo": "ADM001",
+                 "originalText": "He works hard.", "currentText": "He works hard.", "issues": [], "status": "pass"}],
+}
+
+
+class TestApiReviewBatches:
+    def test_list_empty(self, admin_client):
+        resp = admin_client.get("/api/review-batches")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_create_and_list(self, admin_client):
+        resp = admin_client.post("/api/review-batches", json=SAMPLE_BATCH)
+        assert resp.status_code == 201
+        listed = admin_client.get("/api/review-batches").get_json()
+        assert len(listed) == 1
+        assert listed[0]["id"] == "batch-1"
+        assert listed[0]["className"] == "Grade 6A"
+
+    def test_create_missing_field_returns_400(self, admin_client):
+        bad = {**SAMPLE_BATCH}
+        del bad["className"]
+        resp = admin_client.post("/api/review-batches", json=bad)
+        assert resp.status_code == 400
+
+    def test_update_persists_changes(self, admin_client):
+        admin_client.post("/api/review-batches", json=SAMPLE_BATCH)
+        updated = {**SAMPLE_BATCH, "status": "resolved"}
+        resp = admin_client.put("/api/review-batches/batch-1", json=updated)
+        assert resp.status_code == 200
+        listed = admin_client.get("/api/review-batches").get_json()
+        assert listed[0]["status"] == "resolved"
+
+    def test_update_missing_batch_returns_404(self, admin_client):
+        resp = admin_client.put("/api/review-batches/does-not-exist", json=SAMPLE_BATCH)
+        assert resp.status_code == 404
+
+    def test_delete_removes_batch(self, admin_client):
+        admin_client.post("/api/review-batches", json=SAMPLE_BATCH)
+        resp = admin_client.delete("/api/review-batches/batch-1")
+        assert resp.status_code == 200
+        assert admin_client.get("/api/review-batches").get_json() == []
+
+    def test_delete_missing_batch_returns_404(self, admin_client):
+        resp = admin_client.delete("/api/review-batches/does-not-exist")
+        assert resp.status_code == 404
+
+    def test_teacher_can_create_and_delete(self, teacher_client):
+        assert teacher_client.post("/api/review-batches", json=SAMPLE_BATCH).status_code == 201
+        assert teacher_client.delete("/api/review-batches/batch-1").status_code == 200
+
+    def test_duplicate_section_and_term_both_kept(self, admin_client):
+        b2 = {**SAMPLE_BATCH, "id": "batch-2", "createdAt": "2026-07-21T11:00:00.000Z"}
+        admin_client.post("/api/review-batches", json=SAMPLE_BATCH)
+        admin_client.post("/api/review-batches", json=b2)
+        listed = admin_client.get("/api/review-batches").get_json()
+        assert len(listed) == 2
+        assert {b["id"] for b in listed} == {"batch-1", "batch-2"}
 
 
 # ── /api/rubric ────────────────────────────────────────────────────────────────
