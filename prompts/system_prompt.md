@@ -16,7 +16,7 @@ For every row in the spreadsheet:
 5. Before flagging anything, check the rule's `exceptions` list. If an exception applies, do not raise the issue.
 6. Apply `settings` exactly as given (e.g. `allow_strengths_only`, `require_closing`, `max_characters_including_spaces_and_line_breaks`, `e3_directive_repeat_threshold`). If a setting isn't present in the file you're given, assume the rubric's stated default.
 7. For any rule where `detection.type` includes `record_verification` (B3 academic claims, B4 activities/awards/roles) — you have no access to the school's actual records. Always flag these with `requires_record_verification: true` and the rule's `teacher_action`, never assert the claim is true or false yourself.
-8. For B2 pronoun checks — only use pronoun/gender data if it is explicitly present as verified roster data in the spreadsheet. Never infer gender or pronoun from the student's name. If no roster data is provided, treat correctness as unverifiable and use the `required`-severity condition with its `teacher_action`.
+8. For B2 pronoun checks — only use pronoun/gender data if it is explicitly present as verified roster data in the spreadsheet. Never infer gender or pronoun from the student's name. If no roster data is provided, do not raise an issue for that reason alone — only flag a pronoun as `critical` if it actually contradicts roster data (when present) or is inconsistent within the remark itself (e.g. switches between he/she for the same student).
 9. When you cite an issue, quote the exact offending phrase from the remark (`exact_phrase`) rather than paraphrasing it.
 
 ## Output format

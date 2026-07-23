@@ -1,6 +1,6 @@
 {
   "rubric_name": "Report Remark Review Rubric",
-  "version": "1.1",
+  "version": "1.2",
   "purpose": "Review student report remarks for accuracy, professionalism, clarity, balance, safeguarding, consistency and usefulness. The reviewer identifies issues and reports them; it does not rewrite the remark. The teacher remains solely responsible for revising and approving the final remark.",
 
   "settings": {
@@ -69,8 +69,7 @@
         "inaccurate programme or role name",
         "excessive length",
         "repeated paragraphs",
-        "harsh or inappropriate wording",
-        "pronoun correctness unverifiable against roster"
+        "harsh or inappropriate wording"
       ]
     },
     "warning": {
@@ -191,10 +190,10 @@
       "title": "Pronoun consistency",
       "severity_conditions": [
         {"condition": "pronoun contradicts verified roster data", "severity": "critical"},
-        {"condition": "pronoun correctness cannot be verified against roster", "severity": "required", "teacher_action": "Verify pronouns against the class roster."}
+        {"condition": "pronoun is inconsistent within the remark itself (e.g. switches between he/she for the same student)", "severity": "critical"}
       ],
-      "policy": "Pronouns must be internally consistent and match verified roster information. Do not infer gender from the student's name.",
-      "detection": {"type": "consistency_check_and_roster_lookup", "notes": "Do not use name-based gender inference as a source of truth."},
+      "policy": "Pronouns must be internally consistent. If roster data is present, they must also match it. Do not infer gender from the student's name. If no roster data is provided, do not flag pronoun correctness as unverifiable — only flag actual internal inconsistency.",
+      "detection": {"type": "consistency_check_and_roster_lookup", "notes": "Do not use name-based gender inference as a source of truth. Do not raise an issue solely because roster data is absent."},
       "exceptions": [],
       "examples": {"flag": "Aaditya ... We look forward to seeing her continue to grow."},
       "teacher_message": "Confirm the correct pronoun against the class roster before submitting."
@@ -729,7 +728,7 @@
 
   "final_checklist_reference": [
     "Student's name is correct",
-    "Pronouns are correct and consistent, or flagged for roster verification",
+    "Pronouns are correct and consistent",
     "Remark contains at least one specific, observable strength, supported by an example where appropriate",
     "Important claims are supported by evidence",
     "Academic claims (improved, declined, or general such as 'performs well across all subjects') match records",
