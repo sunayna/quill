@@ -139,6 +139,11 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
             print(f"  Rate limited — waiting {wait}s before retry {attempt + 1}/3...")
             time.sleep(wait)
             continue
+        if resp.status_code in (500, 502, 503, 504):
+            wait = 5 * (2 ** attempt)
+            print(f"  Gemini server error ({resp.status_code}) — waiting {wait}s before retry {attempt + 1}/3...")
+            time.sleep(wait)
+            continue
         resp.raise_for_status()
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
