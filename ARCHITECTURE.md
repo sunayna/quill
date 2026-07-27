@@ -1,4 +1,4 @@
-# Architecture — Report Remark Verification Platform
+# Architecture — Quillwarden Verification Platform
 
 > Status: **planning document**. Nothing described past "Version 1" is built yet. This file exists so Claude Code has the long-term shape of the system before writing code, and so each phase gets built in the right order instead of skipped ahead of.
 
@@ -32,7 +32,7 @@ Teacher uploads CSV/XLSX
 
 ### Rubric Store — *have this*
 - **What it stores:** every rule (e.g. `A1`, `B2`, `K1`), its severity, examples, exceptions, and settings.
-- **Format:** versioned JSON. See `rubric/report_remark_rubric.json` (currently v1.1 — see `CHANGELOG.md`).
+- **Format:** versioned JSON. See `rubric/quillwarden_rubric.json` (currently v1.1 — see `CHANGELOG.md`).
 - **Why it's separate from code:** admins/teachers can change policy (add a rule, loosen a severity, adjust a threshold) without touching the evaluation code. This is already true of the current prototype — `settings` and `categories` in the rubric JSON are the entire policy surface.
 - **Convention going forward:** as the rubric evolves, keep versioned files (`rubric-v1.0.json`, `rubric-v1.1.json`, …) in `rubric/`, with a clear "current" pointer, rather than only mutating one file in place. This preserves the ability to re-run old evaluations against the rubric version that was active at the time — important once evaluations are stored and compared over time (see §5).
 

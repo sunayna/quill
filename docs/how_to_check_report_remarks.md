@@ -6,7 +6,7 @@
 
 2. **AI CHECK**
    - Paste the system prompt (`prompts/system_prompt.md`) as the first message — or into the system/instructions field, if the interface has one.
-   - Upload `rubric/report_remark_rubric.json`.
+   - Upload `rubric/quillwarden_rubric.json`.
    - Upload the xlsx with that batch's remarks.
 
 3. **CORRECTION**

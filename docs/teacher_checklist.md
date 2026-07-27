@@ -1,4 +1,4 @@
-# Report Remark — Teacher Checklist (v1.0)
+# Quillwarden — Teacher Checklist (v1.0)
 
 *Review before submitting. The teacher makes the final call on any revision.*
 

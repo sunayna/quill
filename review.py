@@ -32,7 +32,7 @@ _reviewer  = _load_module("reviewer",  _ROOT / "llm-reviewer" / "reviewer.py")
 
 load_dotenv()
 
-RUBRIC_PATH       = _ROOT / "rubric" / "report_remark_rubric.json"
+RUBRIC_PATH       = _ROOT / "rubric" / "quillwarden_rubric.json"
 SYSTEM_PROMPT_PATH = _ROOT / "prompts" / "system_prompt.md"
 GEMINI_MODEL      = "gemini-flash-latest"
 

@@ -30,7 +30,7 @@ def _load_module(name, path):
 _validator = _load_module("validator", _ROOT / "deterministic-validator" / "validator.py")
 _reviewer = _load_module("reviewer", _ROOT / "llm-reviewer" / "reviewer.py")
 
-RUBRIC_PATH = _ROOT / "rubric" / "report_remark_rubric.json"
+RUBRIC_PATH = _ROOT / "rubric" / "quillwarden_rubric.json"
 ACTIVE_RUBRIC_PATH = _ROOT / "rubric" / "active_rubric.json"
 SYSTEM_PROMPT_PATH = _ROOT / "prompts" / "system_prompt.md"
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")

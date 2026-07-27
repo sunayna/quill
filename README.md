@@ -1,21 +1,21 @@
-# Report Remark Review — Project
+# Quillwarden — Project
 
 A rubric-driven evaluation engine, starting with report-card remarks and planned to grow toward evaluating student answers and assignments later. See **`ARCHITECTURE.md`** for the full platform roadmap (Version 1 workflow → Version 2 retrieval → Version 3+ evidence & verification). This README covers what exists *today*.
 
 ## How the pieces fit together
 
 ```
-report-remark-review/
+quillwarden/
 ├── ARCHITECTURE.md                    ← long-term platform roadmap (read this first)
 ├── rubric/
-│   └── report_remark_rubric.json      ← source of truth. All rules, severities,
+│   └── quillwarden_rubric.json        ← source of truth. All rules, severities,
 │                                         settings, and the required AI output schema.
 ├── prompts/
 │   └── system_prompt.md               ← paste into any LLM chat, alongside the
 │                                         rubric JSON and the remarks spreadsheet.
 ├── docs/
 │   ├── teacher_checklist.md           ← plain-text version of the one-page checklist
-│   ├── Report_Remark_Teacher_Checklist.docx  ← formatted, printable version
+│   ├── Quillwarden_Teacher_Checklist.docx    ← formatted, printable version
 │   └── how_to_check_report_remarks.md ← the 4-step process teachers follow
 ├── deterministic-validator/           ← Version 1 (not yet built) — fast rule-based checks
 ├── retrieval/                         ← Version 2 (not yet built) — similar-example search
@@ -28,7 +28,7 @@ report-remark-review/
 ## The workflow
 
 1. **Teacher writes remarks** in the school spreadsheet, self-checking against `docs/teacher_checklist.md` (or the printable `.docx`).
-2. **AI check** — in a fresh chat with any capable LLM: paste `prompts/system_prompt.md`, upload `rubric/report_remark_rubric.json`, upload that batch's remarks spreadsheet.
+2. **AI check** — in a fresh chat with any capable LLM: paste `prompts/system_prompt.md`, upload `rubric/quillwarden_rubric.json`, upload that batch's remarks spreadsheet.
 3. **Teacher corrects** flagged issues directly in the spreadsheet, then re-runs the check on just the revisions.
 4. **Teacher submits** once all `critical` and `required` issues are resolved.
 
