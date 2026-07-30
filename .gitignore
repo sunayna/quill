@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 results.json
 quill.db
+server.log
