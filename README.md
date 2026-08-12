@@ -22,10 +22,17 @@ quillwarden/
 ├── evidence-store/                    ← Version 3+ (not yet built) — verified student records
 ├── feedback-db/                       ← Version 1, incremental (not yet built) — teacher decisions
 ├── apps-script/
-│   └── Code.gs                        ← standalone Google Apps Script version — runs the
-│                                         deterministic checks plus a batched Gemini call
-│                                         directly inside the remarks Google Sheet via a
-│                                         custom menu, no server required
+│   ├── Code.gs                        ← thin loader stub — this is the ONLY file pasted
+│   │                                     into a teacher's Apps Script project. Registers
+│   │                                     the Quillwarden menu and fetches+runs the real
+│   │                                     logic fresh from Drive on every action.
+│   └── quillwarden-logic.js           ← the actual logic (all checks, rubric, system
+│                                         prompt, Gemini call). Not pasted anywhere —
+│                                         hosted as one file on Drive and eval()'d by
+│                                         Code.gs at runtime, so editing this one file
+│                                         updates every teacher's sheet immediately,
+│                                         including sheets copied long ago. See the
+│                                         setup comments at the top of both files.
 ├── archive/                           ← superseded versions, kept for reference
 └── CHANGELOG.md                       ← what changed between rubric versions
 ```
