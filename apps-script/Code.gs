@@ -26,7 +26,7 @@
  *    file at LOGIC_FILE_ID — same sharing model as the sheet itself.
  */
 
-var LOGIC_FILE_ID = 'PUT_THE_DRIVE_FILE_ID_HERE';
+var LOGIC_FILE_ID = '1CTah6W0pFKYpeUiahYrv9X1EGxxO1U2F';
 
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -44,8 +44,14 @@ function clearGeminiKey_() { runQuillwarden_('clearGeminiKey_'); }
 function runQuillwarden_(action) {
   try {
     var code = DriveApp.getFileById(LOGIC_FILE_ID).getBlob().getDataAsString();
-    eval(code);
-    QuillwardenDispatch_(action);
+    // Apps Script's V8 runtime executes in strict mode, where a direct eval()
+    // does NOT leak its function/var declarations into the caller's scope
+    // (unlike sloppy-mode JS elsewhere). The Function constructor sidesteps
+    // this: it always runs in its own scope, so we explicitly return the one
+    // symbol we need (QuillwardenDispatch_) instead of relying on leakage.
+    var factory = new Function(code + '\nreturn QuillwardenDispatch_;');
+    var dispatch = factory();
+    dispatch(action);
   } catch (e) {
     SpreadsheetApp.getUi().alert(
       'Quillwarden failed to load: ' + (e && e.message ? e.message : e) +
