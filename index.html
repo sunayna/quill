@@ -29,6 +29,7 @@ main{padding:24px;max-width:1400px;width:100%}
 label{font-size:13px;font-weight:600;display:block;margin-bottom:6px}
 input,select,textarea{border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff}
 textarea{width:100%;min-height:170px;line-height:1.45}
+#editedText::placeholder{color:var(--muted);opacity:1}
 .primary{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 15px;cursor:pointer}
 .secondary{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 15px;cursor:pointer}
 .danger{background:#fff1f2;color:var(--critical);border:1px solid #fecdd3}
@@ -97,17 +98,27 @@ pre{white-space:pre-wrap}
     </div>
     <div style="margin-top:16px"><label>Spreadsheet (CSV)</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
     <div class="notice" style="margin-top:16px">
-      Required columns: <b>Sr.No</b>, <b>Admission No.</b>, <b>Name</b>, <b>Teacher's Comments</b>.
+      Required columns: <b>Sr.No</b>, <b>Admission No.</b>, <b>Student Name</b>, <b>Remark</b>.
       <div style="margin-top:10px"><button class="secondary" onclick="downloadTemplate()" style="font-size:13px;padding:6px 12px">Download blank template</button></div>
     </div>
     <div id="uploadSummary" class="muted" style="margin-top:14px">No file selected.</div>
     <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="loadSample()">Load test data</span><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="previewQuillModal()">Preview loading animation</span></div>
   </div>
+  <div class="card" style="margin-top:16px">
+    <h1>Or load from a Google Drive folder</h1>
+    <div class="muted">This has its own Term selector below — it does not use the Class / Term picked above. Each file's "Review" sheet is read directly; the class/section for each file is guessed from its filename and shown next to it, so double-check it before reviewing.</div>
+    <div class="grid grid-2" style="margin-top:12px">
+      <div><label>Term</label><select id="driveTermName" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:#fff"><option>Term 1</option><option selected>Term 2</option><option>Term 3</option></select></div>
+      <div><label>Drive folder link</label><input id="driveFolderInput" type="text" placeholder="Paste the Drive folder link" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="secondary" onclick="loadDriveFiles()">Find files</button></div>
+    <div id="driveFilesList" class="muted" style="margin-top:12px"></div>
+  </div>
 </section>
 
 <section id="classReview" class="page hidden">
   <div class="breadcrumb"><span class="link" onclick="showPage('myReviews')">My reviews</span> › <span id="classCrumb"></span></div>
-  <div class="toolbar"><div><h1 id="classTitle"></h1><div class="muted" id="classSubtitle"></div></div><button class="secondary" onclick="exportXLSX()">Download corrected Excel</button></div>
+  <div class="toolbar"><div><h1 id="classTitle"></h1><div class="muted" id="classSubtitle"></div></div><div class="row"><button id="driveSaveAllBtn" class="primary hidden" onclick="saveAllToSheet()">Save all reviews to Sheet</button><button class="secondary" onclick="exportXLSX()">Download corrected Excel</button></div></div>
   <div class="grid grid-4" id="metrics"></div>
   <div class="card">
     <div class="row">
@@ -128,13 +139,16 @@ pre{white-space:pre-wrap}
     <span id="admNoStatus" class="muted" style="font-size:12px"></span>
   </div>
   <div class="grid grid-2">
-    <div class="card"><h3>Original remark</h3><div id="originalText"></div></div>
+    <div class="card"><h3>Original remark</h3><div class="muted" style="font-size:12px;margin-bottom:8px"><del style="background:#fde2e2;color:#9f1239;text-decoration:line-through;padding:0 2px">removed</del> &nbsp; <ins style="background:#dcfce7;color:#166534;text-decoration:none;padding:0 2px">added</ins></div><div id="originalText"></div></div>
     <div class="card"><h3>Issues found</h3><div id="issueList"></div></div>
   </div>
   <div class="card">
     <h3>Edited remark</h3>
-    <textarea id="editedText" oninput="updateCharCount()"></textarea>
-    <div class="row" style="justify-content:space-between;margin-top:8px"><span id="charCount" class="muted"></span><div class="row"><button class="secondary" onclick="saveRemark()">Save</button><button class="primary" onclick="recheckRemark()">Recheck this remark</button></div></div>
+    <div style="position:relative">
+      <div id="editedBackdrop" aria-hidden="true" style="position:absolute;inset:0;padding:10px;border:1px solid transparent;border-radius:8px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;overflow:auto;pointer-events:none;color:#1d2733"></div>
+      <textarea id="editedText" oninput="updateCharCount();updateDiff()" onscroll="document.getElementById('editedBackdrop').scrollTop=this.scrollTop" style="position:relative;background:transparent;color:transparent;caret-color:#1d2733"></textarea>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:8px"><span id="charCount" class="muted"></span><div class="row" style="align-items:center;gap:10px"><span id="driveSaveStatus" class="muted" style="font-size:12px"></span><button id="driveSaveBtn" class="secondary hidden" onclick="saveToSheet()">Save review to Sheet</button><button class="secondary" onclick="saveRemark()">Save</button><button id="recheckBtn" class="primary" onclick="recheckRemark()">Recheck this remark</button></div></div>
   </div>
   <div class="row" style="justify-content:space-between"><button id="prevBtn" class="secondary" onclick="previousRemark()">Previous</button><button id="nextBtn" class="secondary" onclick="nextRemark()">Save and next</button></div>
 </section>
@@ -222,12 +236,12 @@ pre{white-space:pre-wrap}
 </div>
 
 <div id="quillModal" class="hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:1000">
-  <div style="background:var(--card,#fff);border-radius:12px;padding:36px 44px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25);max-width:320px">
+  <div style="background:var(--card,#fff);border-radius:12px;padding:36px 44px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25);width:320px;box-sizing:border-box">
     <div style="position:relative;width:160px;height:115px;margin:0 auto">
       <img id="quillFrameA" class="quill-frame" alt="Quill writing" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .3s ease">
       <img id="quillFrameB" class="quill-frame" alt="" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .3s ease">
     </div>
-    <div id="quillModalMsg" style="margin-top:14px;font-size:15px;font-weight:600"></div>
+    <div id="quillModalMsg" style="margin-top:14px;font-size:15px;font-weight:600;min-height:40px;display:flex;align-items:center;justify-content:center"></div>
     <div class="muted" style="margin-top:6px;font-size:13px">Please don't close this tab.</div>
   </div>
 </div>
@@ -271,10 +285,13 @@ async function init(){
   }
 }
 
+async function _getSectionsList(){
+  return CURRENT_USER.sections.length ? CURRENT_USER.sections : await fetch('/api/sections').then(r=>r.json());
+}
 async function populateClassDropdown(){
   const sel = document.getElementById('className');
   sel.innerHTML = '';
-  const sections = CURRENT_USER.sections.length ? CURRENT_USER.sections : await fetch('/api/sections').then(r=>r.json());
+  const sections = await _getSectionsList();
   sections.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
 }
 
@@ -402,6 +419,7 @@ function showClassReview(){
   document.getElementById('classCrumb').textContent=`${b.className} — ${b.termName}`;
   document.getElementById('classSubtitle').textContent=`${b.remarks.length} remarks · Rubric ${b.rubricVersion}`;
   document.querySelector('#classReview .breadcrumb').innerHTML=`<span class="link" onclick="showPage('${backPage}')">← Back</span> &rsaquo; <span id="classCrumb">${b.className} — ${b.termName}</span>`;
+  document.getElementById('driveSaveAllBtn').classList.toggle('hidden',!b.driveMeta);
   renderRemarkTable();
 }
 function renderRemarkTable(){
@@ -416,17 +434,24 @@ function openRemark(id){
   activeRemarkId=id; const b=activeBatch(),r=b.remarks.find(x=>x.id===id); showPage('remarkDetail');
   document.getElementById('detailName').textContent=r.name;
   const idx=b.remarks.indexOf(r);
-  document.getElementById('detailCounter').textContent=`Student ${idx+1} of ${b.remarks.length}`;
+  document.getElementById('detailCounter').textContent=`Student ${idx+1} of ${b.remarks.length} · ${b.className} — ${b.termName}`;
   document.getElementById('detailStatus').innerHTML=badge(r.status);
   document.getElementById('admNoBanner').classList.toggle('hidden',!!r.admissionNo);
   document.getElementById('admNoInput').value='';
   document.getElementById('admNoStatus').textContent='';
-  document.getElementById('originalText').textContent=r.originalText;
-  document.getElementById('editedText').value=r.currentText;
+  document.getElementById('driveSaveBtn').classList.toggle('hidden',!b.driveMeta);
+  document.getElementById('driveSaveStatus').textContent='';
+  const hasOpenIssues=r.issues.some(i=>i.status==='open');
+  const alreadyEdited=r.currentText!==r.originalText;
+  const ta=document.getElementById('editedText');
+  ta.value=(hasOpenIssues||alreadyEdited)?r.currentText:'';
+  ta.placeholder=(hasOpenIssues||alreadyEdited)?'':'No issues found — leave blank to keep this remark as written, or type a replacement here.';
+  updateDiff();
   renderIssues(r); updateCharCount();
   const isFirst=idx===0, isLast=idx===b.remarks.length-1;
   const prevBtn=document.getElementById('prevBtn'), nextBtn=document.getElementById('nextBtn');
-  prevBtn.style.visibility=isFirst?'hidden':'visible';
+  prevBtn.style.visibility='visible';
+  prevBtn.textContent=isFirst?'Back to list':'Previous';
   if(isLast){nextBtn.textContent='Done';nextBtn.onclick=()=>{saveRemark();logGoalsForRemark(currentRemark(),activeBatch().termName);showClassReview();};}
   else{nextBtn.textContent='Save and next';nextBtn.onclick=nextRemark;}
 }
@@ -475,13 +500,77 @@ async function saveEvidence(idx){
   }catch(e){statusEl.textContent='Network error.';}
 }
 function currentRemark(){const b=activeBatch();return b.remarks.find(r=>r.id===activeRemarkId)}
-function updateCharCount(){const n=charCount(document.getElementById('editedText').value);document.getElementById('charCount').textContent=`${n} / 1000 characters`}
-function saveRemark(){const r=currentRemark();r.currentText=document.getElementById('editedText').value;save()}
-function recheckRemark(){const r=currentRemark();saveRemark();r.issues=deterministicReview(r);r.status=statusFor(r.issues);save();openRemark(r.id)}
+function effectiveEditedText(r){
+  const raw=document.getElementById('editedText').value;
+  return raw.trim()===''?(r?r.originalText:''):raw;
+}
+function updateCharCount(){const n=charCount(effectiveEditedText(currentRemark()));document.getElementById('charCount').textContent=`${n} / 1000 characters`}
+function diffWords(oldText,newText){
+  const oldTokens=(oldText||'').split(/(\s+)/), newTokens=(newText||'').split(/(\s+)/);
+  const n=oldTokens.length, m=newTokens.length;
+  const dp=Array.from({length:n+1},()=>new Uint16Array(m+1));
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)dp[i][j]=oldTokens[i]===newTokens[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const ops=[];let i=0,j=0;
+  while(i<n&&j<m){
+    if(oldTokens[i]===newTokens[j]){ops.push({type:'equal',value:oldTokens[i]});i++;j++;}
+    else if(dp[i+1][j]>=dp[i][j+1]){ops.push({type:'delete',value:oldTokens[i]});i++;}
+    else{ops.push({type:'insert',value:newTokens[j]});j++;}
+  }
+  while(i<n){ops.push({type:'delete',value:oldTokens[i]});i++;}
+  while(j<m){ops.push({type:'insert',value:newTokens[j]});j++;}
+  return ops;
+}
+function _escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderDiffHtml(oldText,newText){
+  return diffWords(oldText,newText).map(op=>{
+    const v=_escapeHtml(op.value);
+    if(op.type==='equal')return v;
+    if(op.type==='delete')return `<del style="background:#fde2e2;color:#9f1239;text-decoration:line-through">${v}</del>`;
+    return `<ins style="background:#dcfce7;color:#166534;text-decoration:none">${v}</ins>`;
+  }).join('');
+}
+function renderEditedHighlightHtml(oldText,newText){
+  // Reconstructs exactly newText (so it overlays the textarea pixel-for-pixel),
+  // with the parts that differ from oldText highlighted green.
+  return diffWords(oldText,newText).filter(op=>op.type!=='delete').map(op=>{
+    const v=_escapeHtml(op.value);
+    return op.type==='insert'?`<span style="background:#dcfce7;color:#166534">${v}</span>`:v;
+  }).join('');
+}
+function updateDiff(){
+  const r=currentRemark(); if(!r)return;
+  const edited=effectiveEditedText(r);
+  document.getElementById('originalText').innerHTML=renderDiffHtml(r.originalText||'',edited)||'<span class="muted">(empty)</span>';
+  const raw=document.getElementById('editedText').value;
+  document.getElementById('editedBackdrop').innerHTML=raw===''?'':renderEditedHighlightHtml(r.originalText||'',raw);
+}
+function saveRemark(){const r=currentRemark();r.currentText=effectiveEditedText(r);save()}
+async function recheckRemark(){
+  const r=currentRemark(); if(!r)return;
+  saveRemark();
+  const btn=document.getElementById('recheckBtn');
+  const original=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Rechecking…';}
+  try{
+    const resp=await fetch('/api/review-one',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_name:r.name,remark:r.currentText})});
+    const data=await resp.json().catch(()=>({}));
+    if(!resp.ok){alert('Recheck failed: '+(data.error||resp.statusText));return;}
+    r.issues=(data.issues||[]).map(issue=>({ruleId:issue.rule_id,severity:issue.severity,phrase:issue.exact_phrase||'',explanation:issue.explanation||'',action:issue.teacher_action||'',status:'open'}));
+    r.status=_apiStatusMap[data.status]||'pass';
+    save();
+    openRemark(r.id);
+  }catch(e){alert('Network error: '+e.message);}
+  finally{if(btn){btn.disabled=false;btn.textContent=original;}}
+}
 function decideIssue(openIndex,decision){
   const r=currentRemark(); const open=r.issues.filter(i=>i.status==='open'); open[openIndex].status=decision; r.status=statusFor(r.issues.filter(i=>i.status==='open')); save(); openRemark(r.id);
 }
-function previousRemark(){saveRemark();const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);openRemark(b.remarks[Math.max(0,i-1)].id)}
+function previousRemark(){
+  saveRemark();
+  const b=activeBatch(),i=b.remarks.findIndex(r=>r.id===activeRemarkId);
+  if(i<=0){showClassReview();return;}
+  openRemark(b.remarks[i-1].id);
+}
 function nextRemark(){saveRemark();const b=activeBatch(),r=currentRemark();logGoalsForRemark(r,b.termName);const i=b.remarks.findIndex(x=>x.id===activeRemarkId);openRemark(b.remarks[Math.min(b.remarks.length-1,i+1)].id)}
 
 function extractGoalSentences(text){
@@ -502,7 +591,7 @@ function parseCSV(text){
   const headers=rows.shift().map(h=>h.trim());
   return rows.map(r=>Object.fromEntries(headers.map((h,i)=>[h,(r[i]||'').trim()])));
 }
-const CANONICAL_HEADERS=['Sr.No','Admission No.','Name',"Teacher's Comments"];
+const CANONICAL_HEADERS=['Sr.No','Admission No.','Student Name','Remark'];
 function normalizeHeaderKey(h){
   return String(h).replace(/[‘’ʼ′]/g,"'").replace(/\s+/g,' ').trim().replace(/\.+$/,'').toLowerCase();
 }
@@ -524,8 +613,15 @@ document.getElementById('fileInput').onchange=async e=>{
     const wb=XLSX.read(await file.arrayBuffer()); uploadedRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
   }
   uploadedRows=canonicalizeRows(uploadedRows);
+  uploadedRows.forEach(r=>{if('Remark' in r)r['Remark']=stripTrailingCounts(r['Remark']);});
   document.getElementById('uploadSummary').textContent=`${file.name}: ${uploadedRows.length} students found.`;
 };
+function stripTrailingCounts(text){
+  const metaLine=/^\s*(word count|character count(\s*\(including spaces\))?)\s*:\s*\d+\s*$/i;
+  const lines=(text||'').split('\n');
+  while(lines.length&&(!lines[lines.length-1].trim()||metaLine.test(lines[lines.length-1])))lines.pop();
+  return lines.join('\n').replace(/\s+$/,'');
+}
 const QUILL_LOADING_MESSAGES=['Quilling away…','Quill is at work, please wait…','Requilling your remarks…','Sharpening the quill…','Ink is flowing, hang tight…','Dotting the i\'s, crossing the t\'s…','This may take up to a minute…'];
 const QUILL_FRAMES=[
   {src:'/quilling_frames/frame1.png',duration:400},
@@ -542,10 +638,19 @@ function startQuillFlipbook(frontEl,backEl){
   let i=0,timer;
   frontEl.src=QUILL_FRAMES[0].src;
   frontEl.style.opacity='1';
+  frontEl.classList.remove('quill-idle');
   backEl.style.opacity='0';
+  backEl.classList.remove('quill-idle');
   function scheduleNext(){
+    if(i>=QUILL_FRAMES.length-1){
+      // Reached the end of the reveal — hold on the final frame with a
+      // gentle idle pulse instead of looping back to the tiny first frame,
+      // which read as a jarring size jump rather than a smooth flow.
+      frontEl.classList.add('quill-idle');
+      return;
+    }
     timer=setTimeout(()=>{
-      i=(i+1)%QUILL_FRAMES.length;
+      i++;
       backEl.src=QUILL_FRAMES[i].src;
       backEl.style.opacity='1';
       frontEl.style.opacity='0';
@@ -554,7 +659,7 @@ function startQuillFlipbook(frontEl,backEl){
     },QUILL_FRAMES[i].duration);
   }
   scheduleNext();
-  return ()=>clearTimeout(timer);
+  return ()=>{clearTimeout(timer);frontEl.classList.remove('quill-idle');backEl.classList.remove('quill-idle');};
 }
 function showQuillModal(){
   let i=0;
@@ -569,20 +674,20 @@ function showQuillModal(){
 function previewQuillModal(){const stop=showQuillModal();setTimeout(stop,6000);}
 const _apiStatusMap={'critical_issue':'critical','needs_revision':'required','minor_edits':'warning','no_major_issues':'pass'};
 
-function makeBatchFromApiResults(apiResults,originalRows,className,termName){
+function makeBatchFromApiResults(apiResults,originalRows,className,termName,driveMeta){
   const id=Date.now().toString();
-  const rowByName={};originalRows.forEach(r=>{rowByName[r['Name']]=r;});
+  const rowByName={};originalRows.forEach(r=>{rowByName[r['Student Name']]=r;});
   const remarks=apiResults.map((result,i)=>{
     const orig=rowByName[result.student_name]||{};
     const issues=result.issues.map(issue=>({ruleId:issue.rule_id,severity:issue.severity,phrase:issue.exact_phrase||'',explanation:issue.explanation||'',action:issue.teacher_action||'',status:'open'}));
-    return {id:id+'-'+i,name:result.student_name,srNo:orig['Sr.No']||'',admissionNo:orig['Admission No.']||'',originalText:orig["Teacher's Comments"]||'',currentText:orig["Teacher's Comments"]||'',issues,status:_apiStatusMap[result.status]||'pass'};
+    return {id:id+'-'+i,name:result.student_name,srNo:orig['Sr.No']||'',admissionNo:orig['Admission No.']||'',originalText:orig["Remark"]||'',currentText:orig["Remark"]||'',sheetRow:orig['_sheet_row']||null,issues,status:_apiStatusMap[result.status]||'pass'};
   });
-  return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version};
+  return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version,driveMeta:driveMeta||null};
 }
 
 async function startReview(){
   if(!uploadedRows.length){alert('Upload a spreadsheet or load sample data.');return}
-  const required=['Name',"Teacher's Comments"];const missing=required.filter(h=>!(h in uploadedRows[0]));
+  const required=['Student Name',"Remark"];const missing=required.filter(h=>!(h in uploadedRows[0]));
   if(missing.length){
     const foundCols=Object.keys(uploadedRows[0]).map(k=>`"${k}"`).join(', ');
     const summary=document.getElementById('uploadSummary');
@@ -612,6 +717,94 @@ Aarna,she/her,"Aarna is responsible and completes work on time. Reviewing her wo
 Kabir,he/him,"Kabir is a wonderful student and a joy to teach."`);
   document.getElementById('uploadSummary').textContent='Sample data: 3 students found.';
 }
+const DRIVE_TERM_COLUMN_MAP={'Term 1':'Remark Term 1','Term 2':'Remark Term 2','Term 3':'Remark Term 3'};
+async function loadDriveFiles(){
+  const folderUrl=document.getElementById('driveFolderInput').value.trim();
+  const listEl=document.getElementById('driveFilesList');
+  if(!folderUrl){alert('Paste a Drive folder link first.');return}
+  listEl.textContent='Looking for spreadsheets…';
+  try{
+    const [resp,sections]=await Promise.all([
+      fetch('/api/drive/files?folder_url='+encodeURIComponent(folderUrl)),
+      _getSectionsList(),
+    ]);
+    const data=await resp.json();
+    if(!resp.ok){listEl.innerHTML=`<span style="color:#c0392b">${data.error||'Could not read that folder.'}</span>`;return}
+    if(!data.length){listEl.textContent='No Google Sheets found in that folder.';return}
+    listEl.innerHTML=data.map(f=>{
+      const guess=guessClassName(f.name,sections);
+      const opts=sections.map(s=>`<option value="${s}"${s===guess?' selected':''}>${s}</option>`).join('');
+      return `<div class="row" style="margin-top:6px;align-items:center">`
+        +`<span style="flex:1">${f.name}</span>`
+        +`<select id="driveclass-${f.id}" style="border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;background:#fff">${opts}</select>`
+        +`<button class="secondary" onclick="reviewDriveFile('${f.id}')" id="drivebtn-${f.id}">Review this file</button>`
+        +`</div>`;
+    }).join('');
+  }catch(e){listEl.innerHTML=`<span style="color:#c0392b">Network error: ${e.message}</span>`;}
+}
+function guessClassName(fileName,sections){
+  const m=fileName.match(/(\d{1,2})\s*[-_ ]?\s*([A-Za-z])\b/);
+  if(!m)return sections[0]||'';
+  const guess=`Grade ${m[1]}${m[2].toUpperCase()}`;
+  return sections.includes(guess)?guess:(sections[0]||'');
+}
+async function reviewDriveFile(fileId){
+  const classSel=document.getElementById('driveclass-'+fileId);
+  const className=classSel?classSel.value:'';
+  const termName=document.getElementById('driveTermName').value;
+  const termColumn=DRIVE_TERM_COLUMN_MAP[termName]||('Remark '+termName);
+  const btn=document.getElementById('drivebtn-'+fileId);
+  if(btn){btn.disabled=true;btn.textContent='Reviewing…';}
+  const stopLoadingMsgs=showQuillModal();
+  try{
+    const resp=await fetch('/api/drive/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:fileId,term_column:termColumn})});
+    const data=await resp.json();
+    if(!resp.ok){alert('Review failed: '+(data.error||resp.statusText));return;}
+    const driveMeta={fileId:data.file_id,tab:data.tab,column:data.term_column};
+    const b=makeBatchFromApiResults(data.results,data.rows,className,termName,driveMeta);
+    batches.push(b);
+    await fetch('/api/review-batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
+    activeBatchId=b.id;showClassReview();
+  }catch(e){alert('Network error: '+e.message);}
+  finally{stopLoadingMsgs();if(btn){btn.disabled=false;btn.textContent='Review this file';}}
+}
+
+const QUILLWARDEN_REVIEW_COLUMN='Quillwarden Review';
+function composeReviewComment(r,termName){
+  const open=(r.issues||[]).filter(i=>i.status==='open');
+  const prefix=termName?`${termName} — `:'';
+  if(!open.length)return `${prefix}${statusLabel(r.status)} — no open issues.`;
+  return `${prefix}${statusLabel(r.status)}: ${open.map(i=>i.explanation).join(' | ')}`;
+}
+async function pushRemarksToSheet(remarksToPush){
+  const b=activeBatch();
+  if(!b||!b.driveMeta)return{ok:false,error:'This batch is not linked to a Google Sheet.'};
+  const updates=remarksToPush.filter(r=>r.sheetRow).map(r=>({row_number:r.sheetRow,value:composeReviewComment(r,b.termName)}));
+  if(!updates.length)return{ok:false,error:'Nothing to save — none of these remarks are linked to a sheet row.'};
+  try{
+    const resp=await fetch('/api/drive/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:b.driveMeta.fileId,tab:b.driveMeta.tab,column:QUILLWARDEN_REVIEW_COLUMN,updates})});
+    const data=await resp.json().catch(()=>({}));
+    if(!resp.ok)return{ok:false,error:data.error||resp.statusText};
+    return{ok:true,updated:data.updated};
+  }catch(e){return{ok:false,error:'Network error: '+e.message};}
+}
+async function saveToSheet(){
+  const r=currentRemark(); if(!r)return;
+  saveRemark();
+  const statusEl=document.getElementById('driveSaveStatus');
+  statusEl.textContent='Saving review comments…';
+  const res=await pushRemarksToSheet([r]);
+  statusEl.textContent=res.ok?'Review saved to sheet ✓':('Error: '+res.error);
+}
+async function saveAllToSheet(){
+  const b=activeBatch(); if(!b)return;
+  const btn=document.getElementById('driveSaveAllBtn');
+  const original=btn.textContent;
+  btn.disabled=true;btn.textContent='Saving all reviews…';
+  const res=await pushRemarksToSheet(b.remarks);
+  btn.disabled=false;btn.textContent=original;
+  alert(res.ok?`Saved ${res.updated} review comment(s) to the "${QUILLWARDEN_REVIEW_COLUMN}" column.`:('Could not save: '+res.error));
+}
 function exportXLSX(){
   const b=activeBatch();
   if(!window.XLSX){alert('XLSX library could not load — try again or check your connection.');return}
@@ -620,8 +813,8 @@ function exportXLSX(){
     return {
       'Sr.No':r.srNo||'',
       'Admission No.':r.admissionNo||'',
-      'Name':r.name,
-      "Teacher's Comments":r.currentText,
+      'Student Name':r.name,
+      "Remark":r.currentText,
       'Review Status':statusLabel(r.status),
       'Issues to Address':openIssues.map(i=>i.explanation).join(' | '),
     };
@@ -634,7 +827,7 @@ function exportXLSX(){
 }
 function exportBatchXLSX(id){const prev=activeBatchId;activeBatchId=id;exportXLSX();activeBatchId=prev;}
 function downloadTemplate(){
-  const csv='Sr.No,Admission No.,Name,Teacher\'s Comments\n1,ADM001,Student Name Here,Write the teacher\'s remark here.\n2,ADM002,Student Name Here,Write the teacher\'s remark here.';
+  const csv='Sr.No,Admission No.,Student Name,Remark\n1,ADM001,Student Name Here,Write the teacher\'s remark here.\n2,ADM002,Student Name Here,Write the teacher\'s remark here.';
   const blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='quill_remarks_template.csv';a.click();
 }

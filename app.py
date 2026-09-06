@@ -30,6 +30,21 @@ def _load_module(name, path):
 _validator = _load_module("validator", _ROOT / "deterministic-validator" / "validator.py")
 _reviewer = _load_module("reviewer", _ROOT / "llm-reviewer" / "reviewer.py")
 
+try:
+    _drive_sheets = _load_module("drive_sheets", _ROOT / "drive_sheets.py")
+except ImportError as _drive_import_error:
+
+    class _DriveSheetsUnavailable:
+        _error = _drive_import_error
+
+        def list_spreadsheets(self, *a, **kw):
+            raise RuntimeError(f"Google Drive support not installed: {self._error}")
+
+        def get_sheet_rows(self, *a, **kw):
+            raise RuntimeError(f"Google Drive support not installed: {self._error}")
+
+    _drive_sheets = _DriveSheetsUnavailable()
+
 RUBRIC_PATH = _ROOT / "rubric" / "quillwarden_rubric.json"
 ACTIVE_RUBRIC_PATH = _ROOT / "rubric" / "active_rubric.json"
 SYSTEM_PROMPT_PATH = _ROOT / "prompts" / "system_prompt.md"
@@ -338,6 +353,23 @@ def api_rubric_post():
 
 # ── API: review ────────────────────────────────────────────────────────────────
 
+def _run_review(rows):
+    """Run the deterministic + LLM review pipeline over already-normalized rows."""
+    norm_rows = _normalize_rows(rows)
+    det_results = _validator.run_batch(norm_rows, rubric)
+    if os.environ.get("SKIP_LLM") == "1":
+        llm_results = []
+    else:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY not configured on the server")
+        llm_results = _reviewer.run_review(
+            norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
+        )
+        llm_results = _filter_b2_issues(llm_results, norm_rows)
+    return _merge_results(det_results, llm_results)
+
+
 @app.route("/api/review", methods=["POST"])
 @login_required
 def api_review():
@@ -346,20 +378,118 @@ def api_review():
     if not rows:
         return jsonify({"error": "No rows provided"}), 400
     try:
-        norm_rows = _normalize_rows(rows)
-        det_results = _validator.run_batch(norm_rows, rubric)
-        if os.environ.get("SKIP_LLM") == "1":
-            llm_results = []
-        else:
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                return jsonify({"error": "GEMINI_API_KEY not configured on the server"}), 500
-            llm_results = _reviewer.run_review(
-                norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
+        return jsonify(_run_review(rows))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/review-one", methods=["POST"])
+@login_required
+def api_review_one():
+    """Re-run the full deterministic + AI review for a single edited remark
+    (the "Recheck this remark" button), instead of the old client-only
+    check that never touched the real rule set or the AI review at all."""
+    data = request.get_json(force=True) or {}
+    name = (data.get("student_name") or "").strip()
+    remark = (data.get("remark") or "").strip()
+    if not (name and remark):
+        return jsonify({"error": "student_name and remark are required"}), 400
+    try:
+        results = _run_review([{"Student Name": name, "Remark": remark}])
+        return jsonify(results[0] if results else {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── API: Google Drive folder ────────────────────────────────────────────────────
+
+@app.route("/api/drive/files", methods=["GET"])
+@login_required
+def api_drive_files():
+    folder_url = request.args.get("folder_url", "").strip()
+    if not folder_url:
+        return jsonify({"error": "folder_url is required"}), 400
+    try:
+        return jsonify(_drive_sheets.list_spreadsheets(folder_url))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/drive/review", methods=["POST"])
+@login_required
+def api_drive_review():
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id", "").strip()
+    term_column = data.get("term_column", "").strip()
+    if not (file_id and term_column):
+        return jsonify({"error": "file_id and term_column are required"}), 400
+    try:
+        tab, raw_rows = _drive_sheets.get_sheet_rows(file_id, sheet_name="Review")
+    except Exception as e:
+        return jsonify({"error": f"Could not read that spreadsheet: {e}"}), 500
+
+    def _find(row, wanted):
+        wanted_norm = re.sub(r"\s+", " ", wanted).strip().lower()
+        for k, v in row.items():
+            if re.sub(r"\s+", " ", k).strip().lower() == wanted_norm:
+                return (v or "").strip()
+        return ""
+
+    rows = []
+    for r in raw_rows:
+        name = _find(r, "Student Name")
+        remark = _strip_trailing_counts(_find(r, term_column))
+        if name and remark:
+            rows.append({"Student Name": name, "Remark": remark, "_sheet_row": r.get("_row_number")})
+    if not rows:
+        found_headers = list(raw_rows[0].keys()) if raw_rows else []
+        return jsonify({
+            "error": (
+                f"No rows with both a Student Name and a '{term_column}' value were found. "
+                f"Columns in the sheet: {found_headers}"
             )
-            llm_results = _filter_b2_issues(llm_results, norm_rows)
-        results = _merge_results(det_results, llm_results)
-        return jsonify(results)
+        }), 400
+
+    try:
+        results = _run_review(rows)
+        return jsonify({
+            "rows": rows,
+            "results": results,
+            "file_id": file_id,
+            "tab": tab,
+            "term_column": term_column,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/drive/save", methods=["POST"])
+@login_required
+def api_drive_save():
+    """Write edited remarks back into the source Google Sheet (one column, many rows)."""
+    data = request.get_json(force=True) or {}
+    file_id = (data.get("file_id") or "").strip()
+    tab = (data.get("tab") or "").strip()
+    column = (data.get("column") or "").strip()
+    updates = data.get("updates") or []
+    if not (file_id and tab and column and updates):
+        return jsonify({"error": "file_id, tab, column and updates are required"}), 400
+
+    clean_updates = []
+    for u in updates:
+        row_number = u.get("row_number")
+        if not row_number:
+            continue
+        clean_updates.append({
+            "row_number": int(row_number),
+            "value": _strip_trailing_counts(u.get("value") or ""),
+        })
+    if not clean_updates:
+        return jsonify({"error": "No valid updates — missing sheet row numbers."}), 400
+
+    try:
+        _drive_sheets.update_remark_cells_batch(file_id, tab, column, clean_updates)
+        return jsonify({"ok": True, "updated": len(clean_updates)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -542,6 +672,23 @@ def _status_from_issues(issues):
     )
 
 
+_TRAILING_META_LINE_RE = re.compile(
+    r"^\s*(word count|character count(\s*\(including spaces\))?)\s*:\s*\d+\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_trailing_counts(text):
+    """Drop trailing 'Word count: N' / 'Character count (including spaces): N'
+    bookkeeping lines some teachers leave at the end of a remark cell — they
+    aren't part of the remark and would otherwise inflate the character count
+    the rubric checks against."""
+    lines = text.split("\n")
+    while lines and (not lines[-1].strip() or _TRAILING_META_LINE_RE.match(lines[-1])):
+        lines.pop()
+    return "\n".join(lines).rstrip()
+
+
 def _normalize_rows(raw_rows):
     normalized = []
     for row in raw_rows:
@@ -553,6 +700,8 @@ def _normalize_rows(raw_rows):
             norm["student_name"] = norm["name"]
         if "pronouns" in norm and "pronoun" not in norm:
             norm["pronoun"] = norm["pronouns"]
+        if "remark" in norm:
+            norm["remark"] = _strip_trailing_counts(norm["remark"])
         normalized.append(norm)
     return normalized
 
@@ -608,13 +757,20 @@ def _merge_results(det_results, llm_results):
     for name in ordered_names:
         det = det_by_name.get(name, {})
         llm = llm_by_name.get(name, {})
-        seen_rules = {}
-        for issue in det.get("issues", []):
-            seen_rules[issue["rule_id"]] = issue
-        for issue in llm.get("issues", []):
-            if issue["rule_id"] not in seen_rules:
-                seen_rules[issue["rule_id"]] = issue
-        all_issues = list(seen_rules.values())
+        det_issues = det.get("issues", [])
+        # Keep every deterministic issue as-is -- do NOT collapse multiple
+        # issues that happen to share a rule_id (e.g. a remark can have
+        # several distinct I3 punctuation problems at once; the old code
+        # kept only the last one). Only drop an LLM issue when it is an
+        # exact duplicate (same rule_id + same flagged phrase) of a
+        # deterministic issue already found, to avoid showing the same
+        # problem twice.
+        det_seen_pairs = {(i["rule_id"], i.get("exact_phrase")) for i in det_issues}
+        llm_issues = [
+            i for i in llm.get("issues", [])
+            if (i["rule_id"], i.get("exact_phrase")) not in det_seen_pairs
+        ]
+        all_issues = det_issues + llm_issues
         char_count = det.get("character_count") or llm.get("character_count", 0)
         merged.append({
             "student_name": name,

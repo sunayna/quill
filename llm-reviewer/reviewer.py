@@ -123,7 +123,7 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json"},
+        "generationConfig": {"response_mime_type": "application/json", "maxOutputTokens": 8192},
     }
 
     for attempt in range(4):
@@ -132,7 +132,12 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
             params={"key": api_key},
             json=payload,
             verify=False,   # corporate SSL proxy uses a self-signed cert in the chain
-            timeout=300,
+            # Requests now go out per-chunk (≤8 remarks, or 1 for a single
+            # recheck) rather than a whole class in one call, so a slow/stuck
+            # connection doesn't need 5 minutes to give up on — 60s is ample
+            # for a chunk this size and keeps "Recheck this remark" from
+            # looking frozen for many minutes if a request silently hangs.
+            timeout=60,
         )
         if resp.status_code == 429:
             wait = 15 * (2 ** attempt)
@@ -150,6 +155,9 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
     resp.raise_for_status()
 
 
+DEFAULT_CHUNK_SIZE = 8
+
+
 def run_review(
     rows: list[dict],
     rubric: dict,
@@ -157,9 +165,23 @@ def run_review(
     api_key: str,
     model: str = DEFAULT_MODEL,
     skip_rule_ids: frozenset[str] | set[str] | None = None,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
 ) -> list[dict]:
     """
     Call the Gemini API and return a list of review_output_schema objects.
+
+    Rows are sent in chunks of `chunk_size` students per Gemini call rather
+    than one request for the whole class. A single huge request risks the
+    model's response being truncated once it hits the output token limit —
+    for a big class that silently drops the AI review for every student
+    after the cut, which looked like the review "stopping in the middle".
+    Chunking bounds each response and makes failures local to one chunk.
+
+    If a chunk's Gemini call fails even after the retries in _call_gemini,
+    that chunk's students still get a result — with a visible AI_ERROR
+    issue explaining the AI review didn't come back for them this time —
+    instead of silently showing as clean. AI review is never silently
+    skipped; a failure to complete it is always surfaced to the teacher.
 
     Args:
         rows: normalised CSV rows.
@@ -168,7 +190,55 @@ def run_review(
         api_key: Gemini API key.
         model: Gemini model name.
         skip_rule_ids: rule IDs to exclude from the LLM review (already deterministically checked).
+        chunk_size: how many students to send per Gemini request.
     """
-    prompt = build_prompt(rows, rubric, skip_rule_ids)
-    text = _call_gemini(prompt, system_prompt, api_key, model)
-    return parse_response(text)
+    results = []
+    for start in range(0, len(rows), max(1, chunk_size)):
+        chunk = rows[start:start + chunk_size]
+        try:
+            prompt = build_prompt(chunk, rubric, skip_rule_ids)
+            text = _call_gemini(prompt, system_prompt, api_key, model)
+            parsed = parse_response(text)
+        except Exception:
+            parsed = []
+
+        def _norm_name(s):
+            return " ".join(str(s or "").split()).strip().lower()
+
+        parsed_by_name = {
+            _norm_name(p.get("student_name")): p for p in parsed if isinstance(p, dict)
+        }
+        # Positional fallback: if Gemini's response has exactly as many
+        # entries as the chunk we sent, but a name doesn't match exactly
+        # (extra whitespace, punctuation, a name it echoed slightly
+        # differently), assume it kept the same order rather than treating
+        # a cosmetic mismatch as a failed review for that student.
+        positional_ok = len(parsed) == len(chunk)
+
+        for idx, row in enumerate(chunk):
+            name = row.get("student_name") or row.get("name") or ""
+            hit = parsed_by_name.get(_norm_name(name))
+            if hit is None and positional_ok and isinstance(parsed[idx], dict):
+                hit = parsed[idx]
+            if hit is not None:
+                results.append(hit)
+            else:
+                remark = row.get("remark") or row.get("remarks") or ""
+                results.append({
+                    "student_name": name,
+                    "status": "needs_revision",
+                    "issues": [{
+                        "rule_id": "AI_ERROR",
+                        "severity": "warning",
+                        "exact_phrase": "",
+                        "explanation": "AI review could not be completed for this remark this time.",
+                        "teacher_action": (
+                            "Go back to the Drive folder list and review this file again — "
+                            "AI review will be retried for this student."
+                        ),
+                        "requires_record_verification": False,
+                    }],
+                    "character_count": len(remark),
+                    "teacher_revision_required": True,
+                })
+    return results
