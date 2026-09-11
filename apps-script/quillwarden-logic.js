@@ -1104,20 +1104,6 @@ var RUBRIC = {
       "teacher_message": "Replace with a restrained, specific closing statement."
     },
     {
-      "id": "D3",
-      "section": "Inflated or Unsupported Language",
-      "title": "Claims about potential",
-      "severity": "warning",
-      "policy": "Avoid relying heavily on unobservable 'potential'.",
-      "detection": {"type": "semantic", "notes": "Flag references to unrealised or true potential without an observable basis."},
-      "exceptions": [],
-      "examples": {
-        "flag": "He is not performing according to his true potential.",
-        "pass": "Greater consistency in completing tasks will help his work reflect his understanding more accurately."
-      },
-      "teacher_message": "Reframe potential claims in terms of an observable action and outcome."
-    },
-    {
       "id": "E1",
       "section": "Development Points",
       "title": "Specific and practical",
@@ -1208,8 +1194,8 @@ var RUBRIC = {
       "section": "Safeguarding, Privacy and Sensitivity",
       "title": "Personal habits outside school",
       "severity": "required",
-      "policy": "Avoid comments on personal hygiene, eating habits, sleep, clothing, body image, screen time, or household routines. A report remark should normally remain focused on school learning and behaviour.",
-      "detection": {"type": "semantic", "notes": "Screen time is treated as an outside-school personal habit unless authorised."},
+      "policy": "Avoid comments on personal hygiene, eating habits, sleep, clothing, body image, screen time, gaming or video games, or household routines. A report remark should normally remain focused on school learning and behaviour.",
+      "detection": {"type": "semantic", "notes": "Screen time, gaming and video game references are treated as an outside-school personal habit unless authorised."},
       "exceptions": ["settings.screen_time_reporting_authorised is true and digital habits are formally part of this school's reporting format"],
       "examples": {},
       "teacher_message": "Remove this personal-habit reference unless the school has authorised it for this report."
@@ -1281,17 +1267,6 @@ var RUBRIC = {
       "exceptions": [],
       "examples": {},
       "teacher_message": "Correct the logical connector; it does not match the surrounding sentence structure."
-    },
-    {
-      "id": "K2",
-      "section": "Length and Readability",
-      "title": "Recommended length",
-      "severity": "warning",
-      "policy": "Aim for approximately 100-150 words; exact length may vary provided the remark stays clear and within the character limit.",
-      "detection": {"type": "count", "recommended_word_count": "100-150"},
-      "exceptions": [],
-      "examples": {},
-      "teacher_message": "Consider trimming or expanding to the recommended word range."
     },
     {
       "id": "K3",

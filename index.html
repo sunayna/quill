@@ -45,6 +45,7 @@ th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04
 .badge-required{background:#ffedd5;color:var(--required)}
 .badge-warning{background:#fef9c3;color:var(--warning)}
 .badge-pass{background:#dcfce7;color:var(--pass)}
+.badge-pending{background:#f1f5f9;color:#64748b}
 .issue{border-left:4px solid #cbd5e1;padding:12px 14px;background:#f8fafc;border-radius:8px;margin:10px 0}
 .issue.critical{border-color:var(--critical)}
 .issue.required{border-color:var(--required)}
@@ -98,11 +99,11 @@ pre{white-space:pre-wrap}
     </div>
     <div style="margin-top:16px"><label>Spreadsheet (CSV)</label><input id="fileInput" type="file" accept=".csv,.xlsx,.xls" /></div>
     <div class="notice" style="margin-top:16px">
-      Required columns: <b>Sr.No</b>, <b>Admission No.</b>, <b>Student Name</b>, <b>Remark</b>.
+      Required columns: <b>Student Name</b> and a Remark column for the selected term (<b>Remark Term 1</b>, <b>Remark Term 2</b>, or <b>Remark Term 3</b> to match the Term dropdown above &mdash; a single <b>Remark</b> column also works for older files). <b>Sr.No</b> and <b>Admission No.</b> are kept if present but not required.
       <div style="margin-top:10px"><button class="secondary" onclick="downloadTemplate()" style="font-size:13px;padding:6px 12px">Download blank template</button></div>
     </div>
     <div id="uploadSummary" class="muted" style="margin-top:14px">No file selected.</div>
-    <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="loadSample()">Load test data</span><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="previewQuillModal()">Preview loading animation</span></div>
+    <div class="row" style="margin-top:18px"><button class="primary" onclick="startReview()">Start review</button><button class="secondary" onclick="startReviewOneByOne()">Review one by one</button><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="loadSample()">Load test data</span><span class="muted" style="font-size:12px;cursor:pointer;text-decoration:underline" onclick="previewQuillModal()">Preview loading animation</span></div>
   </div>
   <div class="card" style="margin-top:16px">
     <h1>Or load from a Google Drive folder</h1>
@@ -122,10 +123,10 @@ pre{white-space:pre-wrap}
   <div class="grid grid-4" id="metrics"></div>
   <div class="card">
     <div class="row">
-      <select id="statusFilter" onchange="renderRemarkTable()"><option value="all">All statuses</option><option value="critical">Critical</option><option value="required">Needs revision</option><option value="warning">Minor edits</option><option value="pass">Passed</option></select>
-      <input id="searchBox" placeholder="Search student" oninput="renderRemarkTable()" />
+      <select id="statusFilter" onchange="renderRemarkTable()"><option value="all">All statuses</option><option value="pending">Not yet reviewed</option><option value="critical">Critical</option><option value="required">Needs revision</option><option value="warning">Minor edits</option><option value="pass">Passed</option></select>
+      <input id="searchBox" placeholder="Search by name or row number" oninput="renderRemarkTable()" />
     </div>
-    <div style="overflow:auto;margin-top:12px"><table><thead><tr><th>Student</th><th>Status</th><th>Issues</th><th>Characters</th><th></th></tr></thead><tbody id="remarkTableBody"></tbody></table></div>
+    <div style="overflow:auto;margin-top:12px"><table><thead><tr><th>Row</th><th>Student</th><th>Status</th><th>Issues</th><th>Characters</th><th></th></tr></thead><tbody id="remarkTableBody"></tbody></table></div>
   </div>
 </section>
 
@@ -242,6 +243,7 @@ pre{white-space:pre-wrap}
       <img id="quillFrameB" class="quill-frame" alt="" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .3s ease">
     </div>
     <div id="quillModalMsg" style="margin-top:14px;font-size:15px;font-weight:600;min-height:40px;display:flex;align-items:center;justify-content:center"></div>
+    <div id="quillModalTimer" style="margin-top:2px;font-size:13px;color:#64748b;font-variant-numeric:tabular-nums;min-height:18px"></div>
     <div class="muted" style="margin-top:6px;font-size:13px">Please don't close this tab.</div>
   </div>
 </div>
@@ -252,6 +254,7 @@ let batches = [];
 let activeBatchId = null;
 let activeRemarkId = null;
 let uploadedRows = [];
+let uploadedSheetName = '';  // which tab of an .xlsx workbook uploadedRows came from, for error messages
 let CURRENT_USER = null;
 
 async function loadBatches(){
@@ -333,7 +336,7 @@ function statusFor(issues){
   if(!issues.length) return 'pass';
   return issues.sort((a,b)=>severityRank(b.severity)-severityRank(a.severity))[0].severity;
 }
-function statusLabel(s){return ({critical:'Critical issue',required:'Needs revision',warning:'Minor edits',pass:'Passed'})[s]}
+function statusLabel(s){return ({critical:'Critical issue',required:'Needs revision',warning:'Minor edits',pass:'Passed',pending:'Not yet reviewed'})[s]}
 function badge(s){return `<span class="badge badge-${s}">${statusLabel(s)}</span>`}
 function charCount(s){return [...(s||'')].length}
 function deterministicReview(student){
@@ -424,11 +427,11 @@ function showClassReview(){
 }
 function renderRemarkTable(){
   const b=activeBatch(); if(!b)return;
-  const counts={critical:0,required:0,warning:0,pass:0}; b.remarks.forEach(r=>counts[r.status]++);
+  const counts={critical:0,required:0,warning:0,pass:0,pending:0}; b.remarks.forEach(r=>counts[r.status]++);
   document.getElementById('metrics').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="metric"><strong>${v}</strong><span class="muted">${statusLabel(k)}</span></div>`).join('');
-  const f=document.getElementById('statusFilter').value, q=document.getElementById('searchBox').value.toLowerCase();
-  const rows=b.remarks.filter(r=>(f==='all'||r.status===f)&&r.name.toLowerCase().includes(q));
-  document.getElementById('remarkTableBody').innerHTML=rows.map(r=>{const open=r.issues.filter(i=>i.status==='open');const summary=open.length?open.slice(0,2).map(i=>ruleTitle[i.ruleId]||i.ruleId).join(', ')+(open.length>2?` +${open.length-2} more`:''):'—';return `<tr><td><b>${r.name}</b></td><td>${badge(r.status)}</td><td style="font-size:13px;color:var(--muted)">${summary}</td><td>${charCount(r.currentText)}</td><td><button class="secondary" onclick="openRemark('${r.id}')">Review</button></td></tr>`;}).join('');
+  const f=document.getElementById('statusFilter').value, q=document.getElementById('searchBox').value.trim().toLowerCase();
+  const rows=b.remarks.filter(r=>(f==='all'||r.status===f)&&(!q||r.name.toLowerCase().includes(q)||String(r.sheetRow||'')===q));
+  document.getElementById('remarkTableBody').innerHTML=rows.map(r=>{const open=r.issues.filter(i=>i.status==='open');const summary=open.length?open.slice(0,2).map(i=>ruleTitle[i.ruleId]||i.ruleId).join(', ')+(open.length>2?` +${open.length-2} more`:''):'—';return `<tr><td class="muted">${r.sheetRow||'—'}</td><td><b>${r.name}</b></td><td>${badge(r.status)}</td><td style="font-size:13px;color:var(--muted)">${summary}</td><td>${charCount(r.currentText)}</td><td><button class="secondary" onclick="openRemark('${r.id}')">Review</button></td></tr>`;}).join('');
 }
 function openRemark(id){
   activeRemarkId=id; const b=activeBatch(),r=b.remarks.find(x=>x.id===id); showPage('remarkDetail');
@@ -436,6 +439,8 @@ function openRemark(id){
   const idx=b.remarks.indexOf(r);
   document.getElementById('detailCounter').textContent=`Student ${idx+1} of ${b.remarks.length} · ${b.className} — ${b.termName}`;
   document.getElementById('detailStatus').innerHTML=badge(r.status);
+  const _recheckBtn=document.getElementById('recheckBtn');
+  if(_recheckBtn)_recheckBtn.textContent=r.status==='pending'?'Review this remark':'Recheck this remark';
   document.getElementById('admNoBanner').classList.toggle('hidden',!!r.admissionNo);
   document.getElementById('admNoInput').value='';
   document.getElementById('admNoStatus').textContent='';
@@ -605,15 +610,57 @@ function canonicalizeRows(rows){
   });
   return rows.map(r=>{const out={};Object.keys(r).forEach(k=>{out[keyMap[k]]=r[k];});return out;});
 }
+
+// The class gradebook keeps one remark column per term (Remark Term 1,
+// Remark Term 2, Remark Term 3) rather than a single "Remark" column, so
+// which column counts as *the* remark for this review depends on which
+// Term is selected above the upload box. Falls back to a literal "Remark"
+// header for older single-term files. Returns the matching original
+// header key from sampleRow, or null if neither is present.
+function resolveRemarkColumn(sampleRow,termName){
+  const wanted=DRIVE_TERM_COLUMN_MAP[termName]||('Remark '+termName);
+  const wantedNorm=normalizeHeaderKey(wanted);
+  const keys=Object.keys(sampleRow);
+  let hit=keys.find(k=>normalizeHeaderKey(k)===wantedNorm);
+  if(hit)return hit;
+  hit=keys.find(k=>normalizeHeaderKey(k)==='remark');
+  return hit||null;
+}
+
+// A teacher's workbook usually has more than one tab — e.g. an "Instructions"
+// tab (with its own "Step"/"Instructions" columns) listed before the actual
+// "Review" tab that has the student data. Blindly reading the first tab
+// picks up "Instructions" and reports every real column as missing. Mirrors
+// the same tab-picking rule the Google Drive import already uses in
+// drive_sheets.py's _pick_tab: prefer a tab literally named "Review" if its
+// header row actually has a "Student Name" column, otherwise scan every tab
+// in order for the first one that does, otherwise give up and use the first
+// tab (the missing-columns check right after this will explain why).
+function pickSheetName(wb){
+  function headerHasStudentName(sheetName){
+    const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,range:0,defval:''});
+    const header=rows[0]||[];
+    return header.some(h=>normalizeHeaderKey(h)==='student name');
+  }
+  const reviewTab=wb.SheetNames.find(n=>normalizeHeaderKey(n)==='review');
+  if(reviewTab&&headerHasStudentName(reviewTab))return reviewTab;
+  return wb.SheetNames.find(headerHasStudentName)||wb.SheetNames[0];
+}
 document.getElementById('fileInput').onchange=async e=>{
   const file=e.target.files[0]; if(!file)return;
+  uploadedSheetName='';
   if(file.name.toLowerCase().endsWith('.csv')) uploadedRows=parseCSV(await file.text());
   else {
     if(!window.XLSX){alert('XLSX library could not load. Use CSV for this prototype.');return}
-    const wb=XLSX.read(await file.arrayBuffer()); uploadedRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+    const wb=XLSX.read(await file.arrayBuffer());
+    uploadedSheetName=pickSheetName(wb);
+    uploadedRows=XLSX.utils.sheet_to_json(wb.Sheets[uploadedSheetName],{defval:''});
   }
   uploadedRows=canonicalizeRows(uploadedRows);
-  uploadedRows.forEach(r=>{if('Remark' in r)r['Remark']=stripTrailingCounts(r['Remark']);});
+  // Row 1 is the header, so the first data row is spreadsheet row 2 — this
+  // lets a teacher who's looking at "row 5" in their own copy of the file
+  // find and review that exact row here, via the Row column/search below.
+  uploadedRows.forEach((r,i)=>{r['_sheet_row']=i+2;});
   document.getElementById('uploadSummary').textContent=`${file.name}: ${uploadedRows.length} students found.`;
 };
 function stripTrailingCounts(text){
@@ -664,16 +711,57 @@ function startQuillFlipbook(frontEl,backEl){
 function showQuillModal(){
   let i=0;
   const modal=document.getElementById('quillModal'),msgEl=document.getElementById('quillModalMsg');
+  const timerEl=document.getElementById('quillModalTimer');
   const frameA=document.getElementById('quillFrameA'),frameB=document.getElementById('quillFrameB');
   modal.classList.remove('hidden');
   const stopFlipbook=startQuillFlipbook(frameA,frameB);
   msgEl.textContent=QUILL_LOADING_MESSAGES[0];
   const timer=setInterval(()=>{i=(i+1)%QUILL_LOADING_MESSAGES.length;msgEl.textContent=QUILL_LOADING_MESSAGES[i];},2200);
-  return ()=>{clearInterval(timer);stopFlipbook();modal.classList.add('hidden');};
+
+  // A running elapsed-time clock, so a long wait (Groq API
+  // rate-limiting and retrying behind the scenes) reads as "still working"
+  // rather than "stuck". Callers doing a whole-class review can also call
+  // stop.setProgress(completed,total) as chunks finish, to show real
+  // "X of Y reviewed" progress alongside the clock.
+  const startedAt=Date.now();
+  let progressText='';
+  function formatElapsed(ms){
+    const totalSeconds=Math.floor(ms/1000);
+    const m=Math.floor(totalSeconds/60),s=totalSeconds%60;
+    return m+':'+String(s).padStart(2,'0');
+  }
+  function tickClock(){
+    if(!timerEl)return;
+    const elapsedMs=Date.now()-startedAt;
+    let text=progressText?(progressText+' · '):'';
+    text+='Elapsed: '+formatElapsed(elapsedMs);
+    if(elapsedMs>20000){
+      text+=' — still working, Google\'s AI can briefly rate-limit requests.';
+    }
+    timerEl.textContent=text;
+  }
+  tickClock();
+  const clock=setInterval(tickClock,1000);
+
+  const stop=()=>{clearInterval(timer);clearInterval(clock);if(timerEl)timerEl.textContent='';stopFlipbook();modal.classList.add('hidden');};
+  stop.setProgress=(completed,total)=>{
+    progressText=total?('Reviewed '+completed+' of '+total+' student'+(total===1?'':'s')):'';
+    tickClock();
+  };
+  return stop;
 }
 function previewQuillModal(){const stop=showQuillModal();setTimeout(stop,6000);}
 const _apiStatusMap={'critical_issue':'critical','needs_revision':'required','minor_edits':'warning','no_major_issues':'pass'};
 
+function makeBatchFromRows(rows,className,termName,driveMeta){
+  const id=Date.now().toString();
+  const remarks=rows.map((row,i)=>({
+    id:id+'-'+i,name:row['Student Name']||'',srNo:row['Sr.No']||'',admissionNo:row['Admission No.']||'',
+    originalText:row['Remark']||'',currentText:row['Remark']||'',sheetRow:row['_sheet_row']||null,
+    issues:[],status:'pending',
+  }));
+  return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version,driveMeta:driveMeta||null};
+}
 function makeBatchFromApiResults(apiResults,originalRows,className,termName,driveMeta){
   const id=Date.now().toString();
   const rowByName={};originalRows.forEach(r=>{rowByName[r['Student Name']]=r;});
@@ -685,30 +773,78 @@ function makeBatchFromApiResults(apiResults,originalRows,className,termName,driv
   return {id,className,termName,createdAt:new Date().toISOString(),status:'in_progress',remarks,rubricVersion:rubric.version,driveMeta:driveMeta||null};
 }
 
-async function startReview(){
-  if(!uploadedRows.length){alert('Upload a spreadsheet or load sample data.');return}
-  const required=['Student Name',"Remark"];const missing=required.filter(h=>!(h in uploadedRows[0]));
+// Starts a background review job (POST to startUrl) and polls its status
+// endpoint until done, feeding "X of Y reviewed" into onProgress as chunks
+// complete. Resolves with the job's "result" payload, or throws on error.
+async function runReviewJob(startUrl,body,onProgress){
+  const startResp=await fetch(startUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const startData=await startResp.json().catch(()=>({}));
+  if(!startResp.ok)throw new Error(startData.error||startResp.statusText);
+  const jobId=startData.job_id;
+  while(true){
+    await new Promise(r=>setTimeout(r,1200));
+    const resp=await fetch('/api/review/status/'+jobId);
+    const data=await resp.json().catch(()=>({}));
+    if(!resp.ok)throw new Error(data.error||resp.statusText);
+    if(onProgress&&data.total)onProgress(data.completed,data.total);
+    if(data.done){
+      if(data.error)throw new Error(data.error);
+      return data.result;
+    }
+  }
+}
+// Shared by startReview() and startReviewOneByOne(): checks uploadedRows
+// has the columns this app needs, resolves whichever "Remark Term N"
+// column matches the selected term, and copies it onto a plain "Remark"
+// key every downstream function expects. Returns true if uploadedRows is
+// ready to build a batch from; shows the same "missing columns" message
+// either way (in the #uploadSummary box) and returns false otherwise.
+function validateAndPrepareUploadedRows(termName){
+  if(!uploadedRows.length){alert('Upload a spreadsheet or load sample data.');return false}
+  const missing=[];
+  if(!('Student Name' in uploadedRows[0]))missing.push('Student Name');
+  const remarkCol=resolveRemarkColumn(uploadedRows[0],termName);
+  if(!remarkCol)missing.push(`Remark (expected "${DRIVE_TERM_COLUMN_MAP[termName]||('Remark '+termName)}", or "Remark")`);
   if(missing.length){
     const foundCols=Object.keys(uploadedRows[0]).map(k=>`"${k}"`).join(', ');
+    const whereFound=uploadedSheetName?` (reading the "${uploadedSheetName}" tab)`:'';
     const summary=document.getElementById('uploadSummary');
-    summary.innerHTML=`<span style="color:#c0392b">Missing required columns: ${missing.join(', ')}</span><br>Columns found in file: ${foundCols}`;
+    summary.innerHTML=`<span style="color:#c0392b">Missing required columns: ${missing.join(', ')}</span><br>Columns found in file${whereFound}: ${foundCols}`;
     summary.style.userSelect='text';
-    return;
+    return false;
   }
+  uploadedRows.forEach(r=>{r['Remark']=stripTrailingCounts(r[remarkCol]);});
+  return true;
+}
+async function startReview(){
   const className=document.getElementById('className').value,termName=document.getElementById('termName').value;
+  if(!validateAndPrepareUploadedRows(termName))return;
+
   const btn=document.querySelector('#upload .primary');
   btn.disabled=true;btn.textContent='Running AI review…';
   const stopLoadingMsgs=showQuillModal();
   try{
-    const resp=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:uploadedRows})});
-    if(!resp.ok){const err=await resp.json().catch(()=>({}));alert('Review failed: '+(err.error||resp.statusText));return;}
-    const apiResults=await resp.json();
+    const apiResults=await runReviewJob('/api/review/start',{rows:uploadedRows},stopLoadingMsgs.setProgress);
     const b=makeBatchFromApiResults(apiResults,uploadedRows,className,termName);
     batches.push(b);
     await fetch('/api/review-batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
     activeBatchId=b.id;showClassReview();
-  }catch(e){alert('Network error: '+e.message);}
+  }catch(e){alert('Review failed: '+e.message);}
   finally{btn.disabled=false;btn.textContent='Start review';stopLoadingMsgs();}
+}
+// Same idea as loadDriveRosterOneByOne(), but for a directly-uploaded
+// spreadsheet: the rows are already sitting in uploadedRows (no fetch
+// needed), so this just validates them, builds a batch where every
+// student starts "Not yet reviewed", and opens the results table — the
+// teacher then reviews each student individually from there (same
+// /api/review-one call "Review this remark" already makes).
+async function startReviewOneByOne(){
+  const className=document.getElementById('className').value,termName=document.getElementById('termName').value;
+  if(!validateAndPrepareUploadedRows(termName))return;
+  const b=makeBatchFromRows(uploadedRows,className,termName,null);
+  batches.push(b);
+  await fetch('/api/review-batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
+  activeBatchId=b.id;showClassReview();
 }
 function loadSample(){
   uploadedRows=parseCSV(`Student Name,Pronouns,Teacher Remark
@@ -738,6 +874,7 @@ async function loadDriveFiles(){
         +`<span style="flex:1">${f.name}</span>`
         +`<select id="driveclass-${f.id}" style="border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;background:#fff">${opts}</select>`
         +`<button class="secondary" onclick="reviewDriveFile('${f.id}')" id="drivebtn-${f.id}">Review this file</button>`
+        +`<button class="secondary" onclick="loadDriveRosterOneByOne('${f.id}')" id="drivelistbtn-${f.id}">Review one by one</button>`
         +`</div>`;
     }).join('');
   }catch(e){listEl.innerHTML=`<span style="color:#c0392b">Network error: ${e.message}</span>`;}
@@ -748,6 +885,25 @@ function guessClassName(fileName,sections){
   const guess=`Grade ${m[1]}${m[2].toUpperCase()}`;
   return sections.includes(guess)?guess:(sections[0]||'');
 }
+async function loadDriveRosterOneByOne(fileId){
+  const classSel=document.getElementById('driveclass-'+fileId);
+  const className=classSel?classSel.value:'';
+  const termName=document.getElementById('driveTermName').value;
+  const termColumn=DRIVE_TERM_COLUMN_MAP[termName]||('Remark '+termName);
+  const btn=document.getElementById('drivelistbtn-'+fileId);
+  if(btn){btn.disabled=true;btn.textContent='Loading roster…';}
+  try{
+    const resp=await fetch('/api/drive/rows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:fileId,term_column:termColumn})});
+    const data=await resp.json().catch(()=>({}));
+    if(!resp.ok)throw new Error(data.error||resp.statusText);
+    const driveMeta={fileId:data.file_id,tab:data.tab,column:data.term_column};
+    const b=makeBatchFromRows(data.rows,className,termName,driveMeta);
+    batches.push(b);
+    await fetch('/api/review-batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
+    activeBatchId=b.id;showClassReview();
+  }catch(e){alert('Could not load that roster: '+e.message);}
+  finally{if(btn){btn.disabled=false;btn.textContent='Review one by one';}}
+}
 async function reviewDriveFile(fileId){
   const classSel=document.getElementById('driveclass-'+fileId);
   const className=classSel?classSel.value:'';
@@ -757,15 +913,13 @@ async function reviewDriveFile(fileId){
   if(btn){btn.disabled=true;btn.textContent='Reviewing…';}
   const stopLoadingMsgs=showQuillModal();
   try{
-    const resp=await fetch('/api/drive/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:fileId,term_column:termColumn})});
-    const data=await resp.json();
-    if(!resp.ok){alert('Review failed: '+(data.error||resp.statusText));return;}
+    const data=await runReviewJob('/api/drive/review/start',{file_id:fileId,term_column:termColumn},stopLoadingMsgs.setProgress);
     const driveMeta={fileId:data.file_id,tab:data.tab,column:data.term_column};
     const b=makeBatchFromApiResults(data.results,data.rows,className,termName,driveMeta);
     batches.push(b);
     await fetch('/api/review-batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).catch(()=>{});
     activeBatchId=b.id;showClassReview();
-  }catch(e){alert('Network error: '+e.message);}
+  }catch(e){alert('Review failed: '+e.message);}
   finally{stopLoadingMsgs();if(btn){btn.disabled=false;btn.textContent='Review this file';}}
 }
 
@@ -779,7 +933,7 @@ function composeReviewComment(r,termName){
 async function pushRemarksToSheet(remarksToPush){
   const b=activeBatch();
   if(!b||!b.driveMeta)return{ok:false,error:'This batch is not linked to a Google Sheet.'};
-  const updates=remarksToPush.filter(r=>r.sheetRow).map(r=>({row_number:r.sheetRow,value:composeReviewComment(r,b.termName)}));
+  const updates=remarksToPush.filter(r=>r.sheetRow&&r.status!=='pending').map(r=>({row_number:r.sheetRow,value:composeReviewComment(r,b.termName)}));
   if(!updates.length)return{ok:false,error:'Nothing to save — none of these remarks are linked to a sheet row.'};
   try{
     const resp=await fetch('/api/drive/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:b.driveMeta.fileId,tab:b.driveMeta.tab,column:QUILLWARDEN_REVIEW_COLUMN,updates})});
@@ -827,7 +981,9 @@ function exportXLSX(){
 }
 function exportBatchXLSX(id){const prev=activeBatchId;activeBatchId=id;exportXLSX();activeBatchId=prev;}
 function downloadTemplate(){
-  const csv='Sr.No,Admission No.,Student Name,Remark\n1,ADM001,Student Name Here,Write the teacher\'s remark here.\n2,ADM002,Student Name Here,Write the teacher\'s remark here.';
+  const csv='Sr.No,Admission No.,Student Name,Remark Term 1,Remark Term 2,Remark Term 3,Quillwarden Review\n'
+    +'1,ADM001,Student Name Here,Write Term 1\'s remark here.,,,\n'
+    +'2,ADM002,Student Name Here,Write Term 1\'s remark here.,,,';
   const blob=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download='quill_remarks_template.csv';a.click();
 }

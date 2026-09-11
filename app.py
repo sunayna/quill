@@ -5,6 +5,9 @@ import os
 import re
 import sqlite3
 import sys
+import threading
+import time
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -48,7 +51,38 @@ except ImportError as _drive_import_error:
 RUBRIC_PATH = _ROOT / "rubric" / "quillwarden_rubric.json"
 ACTIVE_RUBRIC_PATH = _ROOT / "rubric" / "active_rubric.json"
 SYSTEM_PROMPT_PATH = _ROOT / "prompts" / "system_prompt.md"
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+# Which LLM provider does the AI review: "gemini" or "groq". Groq's free
+# tier caps a single request at 8,000 tokens per minute — and this app's
+# rubric alone runs ~7,000 tokens per request — so Groq only really works
+# throttled to one student per request with deliberate pacing between
+# calls (see reviewer.py's DEFAULT_CHUNK_SIZE/_MIN_SECONDS_BETWEEN_CALLS),
+# and its 200,000-tokens-PER-DAY cap means that's good for roughly one
+# full class review a day before the account is out of budget entirely.
+# Gemini has much more headroom on both counts, so it's the default;
+# LLM_PROVIDER=groq switches back without touching any other code.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").strip().lower()
+# gemini-3.6-flash itself DID work, but its free tier allows only 20
+# requests total before every further request 429s with
+# "generate_content_free_tier_requests, limit: 20" — nowhere near enough
+# for even one small class. That's a Google-side quota, not something
+# this app's code can raise. "gemini-3.6-flash-lite" (a guess at the lite
+# sibling's name) turned out not to exist — confirmed by actually calling
+# ListModels against this key (v1beta/models), which is the real, current
+# list of what this key can call rather than another guess. That list
+# includes "gemini-flash-lite-latest": a rolling alias for the lite tier,
+# the same kind of alias as "gemini-flash-latest" (which already proved to
+# resolve to a real, working model for this key — its only problem was
+# transient demand, not availability). Using the alias instead of a
+# pinned lite version (e.g. gemini-3.5-flash-lite) means Google keeps it
+# pointed at something currently callable as models get deprecated,
+# instead of this app hitting another "no longer available" 404 the next
+# time a model is retired. The lite tier should also carry a much larger
+# free-tier request quota than the flagship flash model (cheaper to serve
+# => less rationed) — worth confirming with a real run. Override with
+# GEMINI_MODEL in .env to pin a specific one instead (see ListModels'
+# output for the full set this key can use).
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 
 def _load_rubric():
@@ -353,21 +387,95 @@ def api_rubric_post():
 
 # ── API: review ────────────────────────────────────────────────────────────────
 
-def _run_review(rows):
-    """Run the deterministic + LLM review pipeline over already-normalized rows."""
+def _run_review(rows, on_progress=None):
+    """Run the deterministic + LLM review pipeline over already-normalized rows.
+
+    on_progress, if given, is called as on_progress(completed, total) after
+    each chunk of the LLM review comes back, so a caller (a background job,
+    below) can report "X of Y reviewed" instead of the whole thing looking
+    like one silent, unmeasured wait.
+    """
     norm_rows = _normalize_rows(rows)
     det_results = _validator.run_batch(norm_rows, rubric)
     if os.environ.get("SKIP_LLM") == "1":
         llm_results = []
     else:
-        api_key = os.environ.get("GEMINI_API_KEY")
+        if LLM_PROVIDER == "groq":
+            api_key = os.environ.get("GROQ_API_KEY")
+            key_name, model = "GROQ_API_KEY", GROQ_MODEL
+        else:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            key_name, model = "GEMINI_API_KEY", GEMINI_MODEL
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not configured on the server")
+            raise RuntimeError(
+                f"{key_name} not configured on the server (LLM_PROVIDER={LLM_PROVIDER!r})"
+            )
         llm_results = _reviewer.run_review(
-            norm_rows, rubric, system_prompt, api_key, model=GEMINI_MODEL
+            norm_rows, rubric, system_prompt, api_key, model=model,
+            on_chunk_done=on_progress,
         )
         llm_results = _filter_b2_issues(llm_results, norm_rows)
     return _merge_results(det_results, llm_results)
+
+
+# ── Background review jobs (so the browser can poll "X of Y reviewed") ──────────
+#
+# A whole-class review can take minutes once the LLM provider's rate limits
+# and retries kick in (especially on Groq, which needs deliberate pacing). Rather than one long blocking HTTP request that gives the browser
+# no way to show real progress, /start kicks the review off on a background
+# thread and returns immediately with a job id; /status/<job_id> is polled
+# every second or two to report how many students are done so far.
+
+_review_jobs = {}
+_review_jobs_lock = threading.Lock()
+_JOB_TTL_SECONDS = 60 * 60  # forget finished jobs after an hour
+
+
+def _new_job(total):
+    job_id = uuid.uuid4().hex
+    with _review_jobs_lock:
+        # Light housekeeping: drop old finished jobs so this dict doesn't
+        # grow forever on a server that's left running for a long time.
+        now = time.time()
+        for jid in [j for j, v in _review_jobs.items() if v.get("done") and now - v.get("finished_at", now) > _JOB_TTL_SECONDS]:
+            del _review_jobs[jid]
+        _review_jobs[job_id] = {
+            "completed": 0, "total": total, "done": False, "error": None,
+            "result": None, "finished_at": None,
+        }
+    return job_id
+
+
+def _job_progress(job_id):
+    def _cb(completed, total):
+        with _review_jobs_lock:
+            if job_id in _review_jobs:
+                _review_jobs[job_id]["completed"] = completed
+                _review_jobs[job_id]["total"] = total
+    return _cb
+
+
+def _finish_job(job_id, result=None, error=None):
+    with _review_jobs_lock:
+        if job_id in _review_jobs:
+            _review_jobs[job_id]["done"] = True
+            _review_jobs[job_id]["result"] = result
+            _review_jobs[job_id]["error"] = error
+            _review_jobs[job_id]["finished_at"] = time.time()
+
+
+@app.route("/api/review/status/<job_id>", methods=["GET"])
+@login_required
+def api_review_status(job_id):
+    with _review_jobs_lock:
+        job = _review_jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Unknown or expired job"}), 404
+        return jsonify({
+            "completed": job["completed"], "total": job["total"],
+            "done": job["done"], "error": job["error"],
+            "result": job["result"] if job["done"] else None,
+        })
 
 
 @app.route("/api/review", methods=["POST"])
@@ -381,6 +489,26 @@ def api_review():
         return jsonify(_run_review(rows))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/review/start", methods=["POST"])
+@login_required
+def api_review_start():
+    data = request.get_json(force=True)
+    rows = data.get("rows", [])
+    if not rows:
+        return jsonify({"error": "No rows provided"}), 400
+    job_id = _new_job(len(rows))
+
+    def _work():
+        try:
+            result = _run_review(rows, on_progress=_job_progress(job_id))
+            _finish_job(job_id, result=result)
+        except Exception as e:
+            _finish_job(job_id, error=str(e))
+
+    threading.Thread(target=_work, daemon=True).start()
+    return jsonify({"job_id": job_id})
 
 
 @app.route("/api/review-one", methods=["POST"])
@@ -415,18 +543,16 @@ def api_drive_files():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/drive/review", methods=["POST"])
-@login_required
-def api_drive_review():
-    data = request.get_json(force=True) or {}
-    file_id = data.get("file_id", "").strip()
-    term_column = data.get("term_column", "").strip()
-    if not (file_id and term_column):
-        return jsonify({"error": "file_id and term_column are required"}), 400
+def _drive_review_rows(file_id, term_column):
+    """Read a Drive spreadsheet and return (tab, rows) ready for _run_review.
+
+    Raises RuntimeError with a teacher-facing message on any problem, so
+    both the synchronous and background-job endpoints can share this.
+    """
     try:
         tab, raw_rows = _drive_sheets.get_sheet_rows(file_id, sheet_name="Review")
     except Exception as e:
-        return jsonify({"error": f"Could not read that spreadsheet: {e}"}), 500
+        raise RuntimeError(f"Could not read that spreadsheet: {e}")
 
     def _find(row, wanted):
         wanted_norm = re.sub(r"\s+", " ", wanted).strip().lower()
@@ -443,14 +569,47 @@ def api_drive_review():
             rows.append({"Student Name": name, "Remark": remark, "_sheet_row": r.get("_row_number")})
     if not rows:
         found_headers = list(raw_rows[0].keys()) if raw_rows else []
-        return jsonify({
-            "error": (
-                f"No rows with both a Student Name and a '{term_column}' value were found. "
-                f"Columns in the sheet: {found_headers}"
-            )
-        }), 400
+        raise RuntimeError(
+            f"No rows with both a Student Name and a '{term_column}' value were found. "
+            f"Columns in the sheet: {found_headers}"
+        )
+    return tab, rows
 
+
+@app.route("/api/drive/rows", methods=["POST"])
+@login_required
+def api_drive_rows():
+    """Read a Drive spreadsheet's roster WITHOUT running any AI review —
+    lets the frontend show the class list immediately and review students
+    one at a time (via /api/review-one) at whatever pace the teacher
+    wants, instead of only offering "review the whole file now"."""
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id", "").strip()
+    term_column = data.get("term_column", "").strip()
+    if not (file_id and term_column):
+        return jsonify({"error": "file_id and term_column are required"}), 400
     try:
+        tab, rows = _drive_review_rows(file_id, term_column)
+        return jsonify({
+            "rows": rows,
+            "file_id": file_id,
+            "tab": tab,
+            "term_column": term_column,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/drive/review", methods=["POST"])
+@login_required
+def api_drive_review():
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id", "").strip()
+    term_column = data.get("term_column", "").strip()
+    if not (file_id and term_column):
+        return jsonify({"error": "file_id and term_column are required"}), 400
+    try:
+        tab, rows = _drive_review_rows(file_id, term_column)
         results = _run_review(rows)
         return jsonify({
             "rows": rows,
@@ -461,6 +620,35 @@ def api_drive_review():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/drive/review/start", methods=["POST"])
+@login_required
+def api_drive_review_start():
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id", "").strip()
+    term_column = data.get("term_column", "").strip()
+    if not (file_id and term_column):
+        return jsonify({"error": "file_id and term_column are required"}), 400
+    try:
+        tab, rows = _drive_review_rows(file_id, term_column)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    job_id = _new_job(len(rows))
+
+    def _work():
+        try:
+            results = _run_review(rows, on_progress=_job_progress(job_id))
+            _finish_job(job_id, result={
+                "rows": rows, "results": results, "file_id": file_id,
+                "tab": tab, "term_column": term_column,
+            })
+        except Exception as e:
+            _finish_job(job_id, error=str(e))
+
+    threading.Thread(target=_work, daemon=True).start()
+    return jsonify({"job_id": job_id})
 
 
 @app.route("/api/drive/save", methods=["POST"])
@@ -784,4 +972,7 @@ def _merge_results(det_results, llm_results):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # threaded=True so a background review job's LLM calls don't block
+    # the browser's progress-polling requests (/api/review/status/<id>)
+    # from being served while that job is still running.
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
