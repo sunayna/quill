@@ -663,41 +663,6 @@
       "exceptions": [],
       "examples": {},
       "teacher_message": "Simplify sentence structure or reduce repetition/adjective density."
-    },
-    {
-      "id": "L1",
-      "section": "Closing Statements",
-      "title": "Preferred closing",
-      "severity": "warning",
-      "policy": "The closing should be brief, professional and restrained. A closing is required only if settings.require_closing is true.",
-      "detection": {"type": "phrase_match", "preferred_examples": [
-        "With continued effort, she is well placed to make steady progress.",
-        "Regular practice will support his continued development.",
-        "We wish her well for Grade 7.",
-        "We wish him continued progress in the next academic year."
-      ]},
-      "exceptions": ["settings.require_closing is false"],
-      "examples": {},
-      "teacher_message": "Add a brief, restrained closing statement."
-    },
-    {
-      "id": "L2",
-      "section": "Closing Statements",
-      "title": "Avoid",
-      "severity": "warning",
-      "policy": "Avoid effusive or promotional closings.",
-      "detection": {"type": "phrase_match", "terms": [
-        "Keep shining!",
-        "Make everyone proud!",
-        "Reach greater heights!",
-        "He will certainly excel!",
-        "She is destined for success!",
-        "Unlock your brilliance!",
-        "We look forward to seeing you become a star!"
-      ]},
-      "exceptions": [],
-      "examples": {},
-      "teacher_message": "Replace with a restrained closing from the preferred list."
     }
   ],
 

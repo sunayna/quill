@@ -14,6 +14,15 @@
  * individual action functions depend on the live fetch; a failure there
  * shows an alert but leaves the menu untouched for the next click.
  *
+ * A real modal progress-bar dialog for "Review Remarks" was tried and
+ * pulled back out (see quillwarden-logic.js's own comment above
+ * reviewTermColumn_ for the full story) after hitting a browser/network
+ * condition that broke google.script.run silently, on top of two other
+ * infrastructure issues already fixed along the way. Progress during a run
+ * is now shown via repeated toast() notifications instead — same idea,
+ * much simpler, and it's the same mechanism already used for the
+ * "review complete" summary, so it needs no extra permissions at all.
+ *
  * SETUP
  * 1. Open the remarks Google Sheet.
  * 2. Extensions > Apps Script.
@@ -24,6 +33,15 @@
  * 5. Reload the sheet — a "Quillwarden" menu appears.
  * 6. Every user who runs this needs at least Viewer access to the Drive
  *    file at LOGIC_FILE_ID — same sharing model as the sheet itself.
+ * 7. If this project's manifest (Project Settings, gear icon, tick "Show
+ *    'appsscript.json' manifest file in editor") has an explicit
+ *    "oauthScopes" array, keep it in sync with apps-script/appsscript.json
+ *    in the repo -- an explicit list is enforced exactly as written and is
+ *    NOT auto-extended when future code needs a new permission, so a new
+ *    restricted API call could otherwise fail forever with "Specified
+ *    permissions are not sufficient..." until the scope is added by hand.
+ *    Projects with no explicit oauthScopes array don't need this step;
+ *    auto-detection just prompts for new permissions as needed.
  */
 
 var LOGIC_FILE_ID = '1CTah6W0pFKYpeUiahYrv9X1EGxxO1U2F';

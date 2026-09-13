@@ -276,21 +276,61 @@ def _is_gemini_model(model: str) -> bool:
 
 
 class QuotaExhaustedError(Exception):
-    """Raised when a provider reports a hard, non-transient quota wall —
-    e.g. Gemini's free-tier "generate_content_free_tier_requests" daily
-    request cap — as opposed to an ordinary rate limit that clears on its
-    own within seconds to minutes. Retrying this the way a normal 429/413
-    gets retried is actively harmful: a request-count quota (as opposed to
-    a tokens-per-minute one) doesn't refill mid-request the way a rate
-    limit does, so every retry just fails identically, and doing that for
-    every remaining chunk in a class turns one exhausted quota into hours
-    of wasted waiting instead of an immediate, clear stop. run_review
-    catches this specifically and aborts the whole review right away
-    instead of continuing to the next chunk.
+    """Raised when a provider reports a hard, non-transient quota wall that
+    won't clear within this run — as opposed to an ordinary rate limit
+    that clears on its own within seconds to minutes. Retrying a genuine
+    hard wall the way a normal 429/413 gets retried is actively harmful:
+    every retry just fails identically, and doing that for every remaining
+    chunk in a class turns one exhausted quota into hours of wasted
+    waiting instead of an immediate, clear stop. run_review catches this
+    specifically and aborts the whole review right away instead of
+    continuing to the next chunk.
+
+    IMPORTANT: Gemini's free-tier "generate_content_free_tier_requests"
+    metric name is used for BOTH a short rolling-window limit (which
+    clears in seconds — e.g. "Please retry in 12.8s") and an actual daily
+    cap (which needs waiting until the next day) — the metric name alone
+    doesn't tell them apart. See _extract_retry_delay_seconds: only a
+    missing or very long suggested delay is treated as this hard wall;
+    a short one is treated as an ordinary, retriable rate limit instead.
     """
 
 
-def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> str:
+# Anything Gemini itself says will clear within this many seconds is
+# treated as an ordinary rate limit worth waiting out and retrying (see
+# _call_gemini's 429 handling) rather than as a QuotaExhaustedError hard
+# stop. Chosen generously above the short (single-to-double-digit-second)
+# delays actually observed in practice for the rolling per-minute-style
+# "free_tier_requests" limit, while still well under "come back tomorrow".
+_HARD_QUOTA_RETRY_CEILING_SECONDS = 120.0
+
+
+def _extract_retry_delay_seconds(err: dict, message: str) -> float | None:
+    """
+    Pull the server's own suggested retry delay out of a Gemini 429 error,
+    instead of guessing a fixed backoff. Prefers the structured
+    RetryInfo.retryDelay in error.details (e.g. "12s" or "2.414780407s");
+    falls back to regexing the human-readable "Please retry in 12.8s"
+    text Gemini also includes in `message`. Returns None if neither is
+    present (e.g. some other kind of 429 with no timing hint at all).
+    """
+    for detail in err.get("details", []) or []:
+        raw = detail.get("retryDelay")
+        if raw and raw.endswith("s"):
+            try:
+                return float(raw[:-1])
+            except ValueError:
+                pass
+    m = re.search(r"retry in ([\d.]+)\s*s", message, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+    return None
+
+
+def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str, max_output_tokens: int = 8192) -> str:
     """POST to the Gemini REST endpoint. Returns the raw text of the first candidate.
 
     The original version of this function caught every exception in
@@ -312,7 +352,7 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json", "maxOutputTokens": 8192},
+        "generationConfig": {"response_mime_type": "application/json", "maxOutputTokens": max_output_tokens},
     }
 
     # 503 "the model is currently experiencing high demand" (Google's own
@@ -337,19 +377,20 @@ def _call_gemini(prompt: str, system_prompt: str, api_key: str, model: str) -> s
             except ValueError:
                 err = {}
             message = err.get("message", "")
-            # A per-minute/short-burst rate limit and a hard daily quota
-            # both come back as the same 429/RESOURCE_EXHAUSTED — the only
-            # thing that tells them apart is the message text. Google's
-            # free-tier daily request cap names itself explicitly
-            # ("generate_content_free_tier_requests" / "requests per day" /
-            # "PerDay") — when we see that, no amount of waiting within
-            # this run will help, so stop immediately instead of retrying.
-            if "free_tier_requests" in message or "requests per day" in message.lower() or "perday" in message.lower().replace(" ", ""):
+            retry_delay = _extract_retry_delay_seconds(err, message)
+            is_named_free_tier_quota = (
+                "free_tier_requests" in message
+                or "requests per day" in message.lower()
+                or "perday" in message.lower().replace(" ", "")
+            )
+            if is_named_free_tier_quota and (
+                retry_delay is None or retry_delay > _HARD_QUOTA_RETRY_CEILING_SECONDS
+            ):
                 raise QuotaExhaustedError(message or f"429 with no error detail: {resp.text[:500]}")
             if is_last_attempt:
                 break
-            wait = 15 * (2 ** attempt)
-            print(f"  Gemini rate limited — waiting {wait}s before retry {attempt + 2}/{max_attempts}...")
+            wait = retry_delay + 1 if retry_delay is not None else 15 * (2 ** attempt)
+            print(f"  Gemini rate limited — waiting {wait:.0f}s before retry {attempt + 2}/{max_attempts}...")
             time.sleep(wait)
             continue
         if resp.status_code in (500, 502, 503, 504):
@@ -405,6 +446,32 @@ DEFAULT_CHUNK_SIZE = 1
 # and wait 65s" for "wait up to ~62s, then reliably succeed".
 _MIN_SECONDS_BETWEEN_CALLS = 62
 
+_GEMINI_MIN_SECONDS_BETWEEN_CALLS = 5  # 12/min, under the observed 15 RPM cap for margin
+
+# Gemini gets its own chunk-size default, separate from Groq's
+# DEFAULT_CHUNK_SIZE above. Batching students into one call means the
+# fixed system-prompt+rubric cost (paid on every request no matter the
+# chunk size) is spent once per _GEMINI_DEFAULT_CHUNK_SIZE students
+# instead of once per student -- directly cutting both the total request
+# count (what actually exhausts a free-tier daily/RPD-style cap) and the
+# total tokens sent over a whole-class review. The truncation risk that
+# previously got chunk_size reduced to 1 is handled differently now
+# instead of avoided: max_output_tokens scales with chunk size (see
+# _estimate_max_gemini_output_tokens), and a chunk that still comes back
+# incomplete has its unmatched students retried individually rather than
+# marked AI_ERROR outright -- see the fallback loop in run_review.
+_GEMINI_DEFAULT_CHUNK_SIZE = 4
+
+
+def _estimate_max_gemini_output_tokens(chunk_size: int) -> int:
+    """
+    Output-token budget for a Gemini request covering this many students —
+    scaled up for bigger chunks instead of the old fixed 8192 (which is
+    what let an 8-student chunk truncate mid-array). Generous per-student
+    allowance, capped comfortably inside gemini-flash-lite's own limit.
+    """
+    return min(16384, 1500 + 1500 * max(1, chunk_size))
+
 
 def _estimate_max_completion_tokens(chunk_size: int) -> int:
     """
@@ -417,6 +484,54 @@ def _estimate_max_completion_tokens(chunk_size: int) -> int:
     DEFAULT_CHUNK_SIZE above for why that budget is so scarce here.
     """
     return min(4096, 500 + 550 * max(1, chunk_size))
+
+
+def _quota_exhausted_result(row: dict, provider: str) -> dict:
+    name = row.get("student_name") or row.get("name") or ""
+    remark = row.get("remark") or row.get("remarks") or ""
+    return {
+        "student_name": name,
+        "status": "needs_revision",
+        "issues": [{
+            "rule_id": "AI_ERROR",
+            "severity": "warning",
+            "exact_phrase": "",
+            "explanation": (
+                f"AI review could not be completed: {provider}'s free-tier "
+                "quota for this model was used up during this review."
+            ),
+            "teacher_action": (
+                "Try this student again later (once the quota resets — "
+                "usually the next day for a daily quota), or switch to a "
+                "different model/provider in the meantime."
+            ),
+            "requires_record_verification": False,
+        }],
+        "character_count": len(remark),
+        "teacher_revision_required": True,
+    }
+
+
+def _ai_error_result(row: dict, provider: str) -> dict:
+    name = row.get("student_name") or row.get("name") or ""
+    remark = row.get("remark") or row.get("remarks") or ""
+    return {
+        "student_name": name,
+        "status": "needs_revision",
+        "issues": [{
+            "rule_id": "AI_ERROR",
+            "severity": "warning",
+            "exact_phrase": "",
+            "explanation": "AI review could not be completed for this remark this time.",
+            "teacher_action": (
+                "Go back to the Drive folder list and review this file again — "
+                "AI review will be retried for this student."
+            ),
+            "requires_record_verification": False,
+        }],
+        "character_count": len(remark),
+        "teacher_revision_required": True,
+    }
 
 
 def run_review(
@@ -468,41 +583,33 @@ def run_review(
     is_gemini = _is_gemini_model(model)
     provider = "Gemini" if is_gemini else "Groq"
     if chunk_size is None:
-        # Gemini's own log evidence (server.log) showed 8-student chunks
-        # coming back truncated mid-JSON-array before the closing bracket —
-        # a detailed review_output_schema object per student for 8 students
-        # routinely exceeds the 8,192-output-token budget in _call_gemini's
-        # payload. One student per request keeps each response comfortably
-        # inside that budget, at the cost of more requests overall — a
-        # trade worth making since a truncated chunk currently loses every
-        # student in it, not just the one that pushed it over.
-        chunk_size = 1 if is_gemini else DEFAULT_CHUNK_SIZE
+        # See _GEMINI_DEFAULT_CHUNK_SIZE above for why Gemini batches
+        # several students per request while Groq still sends one at a
+        # time (Groq's per-minute token budget is too tight to batch at
+        # all — see DEFAULT_CHUNK_SIZE).
+        chunk_size = _GEMINI_DEFAULT_CHUNK_SIZE if is_gemini else DEFAULT_CHUNK_SIZE
 
     results = []
     last_call_started = None
     for start in range(0, len(rows), max(1, chunk_size)):
         chunk = rows[start:start + chunk_size]
 
-        # Proactively pace calls (see _MIN_SECONDS_BETWEEN_CALLS) instead of
-        # firing immediately and relying on the 413 retry in _call_groq to
-        # wait out a rate limit that a request this size will hit on
-        # virtually every attempt except the first in a fresh minute. Only
-        # Groq needs this — its free-tier per-minute budget is so tight
-        # that one request nearly exhausts it; Gemini's is comfortably
-        # larger, so pacing there would just slow things down for nothing
-        # and Gemini's own 429 retry in _call_gemini is enough.
-        if not is_gemini and last_call_started is not None:
+        min_gap = _MIN_SECONDS_BETWEEN_CALLS if not is_gemini else _GEMINI_MIN_SECONDS_BETWEEN_CALLS
+        if last_call_started is not None:
             elapsed = time.monotonic() - last_call_started
-            remaining = _MIN_SECONDS_BETWEEN_CALLS - elapsed
+            remaining = min_gap - elapsed
             if remaining > 0:
-                print(f"  Pacing requests to stay under the per-minute token budget — waiting {remaining:.0f}s before the next chunk...")
+                print(f"  Pacing requests to stay under the per-minute budget — waiting {remaining:.0f}s before the next chunk...")
                 time.sleep(remaining)
 
         try:
             prompt = build_prompt(chunk, rubric, skip_rule_ids)
             last_call_started = time.monotonic()
             if is_gemini:
-                text = _call_gemini(prompt, system_prompt, api_key, model)
+                text = _call_gemini(
+                    prompt, system_prompt, api_key, model,
+                    max_output_tokens=_estimate_max_gemini_output_tokens(len(chunk)),
+                )
             else:
                 text = _call_groq(
                     prompt,
@@ -538,29 +645,7 @@ def run_review(
                 f"the remaining {len(remaining_rows)} are marked as needing a retry later."
             )
             for row in remaining_rows:
-                name = row.get("student_name") or row.get("name") or ""
-                remark = row.get("remark") or row.get("remarks") or ""
-                results.append({
-                    "student_name": name,
-                    "status": "needs_revision",
-                    "issues": [{
-                        "rule_id": "AI_ERROR",
-                        "severity": "warning",
-                        "exact_phrase": "",
-                        "explanation": (
-                            f"AI review could not be completed: {provider}'s free-tier "
-                            "quota for this model was used up during this review."
-                        ),
-                        "teacher_action": (
-                            "Try this student again later (once the quota resets — "
-                            "usually the next day for a daily quota), or switch to a "
-                            "different model/provider in the meantime."
-                        ),
-                        "requires_record_verification": False,
-                    }],
-                    "character_count": len(remark),
-                    "teacher_revision_required": True,
-                })
+                results.append(_quota_exhausted_result(row, provider))
             if on_chunk_done:
                 try:
                     on_chunk_done(len(results), len(rows))
@@ -593,6 +678,7 @@ def run_review(
         # a cosmetic mismatch as a failed review for that student.
         positional_ok = len(parsed) == len(chunk)
 
+        unmatched = []
         for idx, row in enumerate(chunk):
             name = row.get("student_name") or row.get("name") or ""
             hit = parsed_by_name.get(_norm_name(name))
@@ -601,31 +687,94 @@ def run_review(
             if hit is not None:
                 results.append(hit)
             else:
-                remark = row.get("remark") or row.get("remarks") or ""
-                sent_names = [r.get("student_name") for r in chunk]
-                got_names = [p.get("student_name") for p in parsed if isinstance(p, dict)]
-                print(
-                    f"  Could not match a {provider} result to student {name!r}. "
-                    f"Sent {len(chunk)} student(s) in this chunk: {sent_names!r}. "
-                    f"{provider} returned {len(parsed)} item(s) with names: {got_names!r}."
-                )
-                results.append({
-                    "student_name": name,
-                    "status": "needs_revision",
-                    "issues": [{
-                        "rule_id": "AI_ERROR",
-                        "severity": "warning",
-                        "exact_phrase": "",
-                        "explanation": "AI review could not be completed for this remark this time.",
-                        "teacher_action": (
-                            "Go back to the Drive folder list and review this file again — "
-                            "AI review will be retried for this student."
-                        ),
-                        "requires_record_verification": False,
-                    }],
-                    "character_count": len(remark),
-                    "teacher_revision_required": True,
-                })
+                unmatched.append(row)
+
+        if unmatched:
+            sent_names = [r.get("student_name") for r in chunk]
+            got_names = [p.get("student_name") for p in parsed if isinstance(p, dict)]
+            print(
+                f"  Could not match a {provider} result to "
+                f"{len(unmatched)} of {len(chunk)} student(s) in this chunk: "
+                f"{[r.get('student_name') for r in unmatched]!r}. "
+                f"Sent: {sent_names!r}. {provider} returned {len(parsed)} item(s) with names: {got_names!r}."
+            )
+
+        # A batched Gemini request that comes back truncated or with a name
+        # mismatch doesn't have to mean AI_ERROR for every affected student —
+        # retry each unmatched one individually (chunk size 1, its own
+        # generous output-token budget) before giving up. A single-student
+        # request is far less likely to hit the same truncation/parsing
+        # problem that tripped up the batch, so this recovers most of what
+        # batching would otherwise have cost. Only meaningful when the
+        # chunk was actually a batch (len > 1) and only for Gemini — Groq
+        # already sends one student per request, so it has no smaller
+        # fallback to retry at.
+        quota_hit_during_fallback = False
+        if unmatched and is_gemini and len(chunk) > 1:
+            for row in unmatched:
+                if quota_hit_during_fallback:
+                    results.append(_quota_exhausted_result(row, provider))
+                    continue
+                elapsed = time.monotonic() - last_call_started
+                remaining = _GEMINI_MIN_SECONDS_BETWEEN_CALLS - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
+                name = row.get("student_name") or row.get("name") or ""
+                try:
+                    solo_prompt = build_prompt([row], rubric, skip_rule_ids)
+                    last_call_started = time.monotonic()
+                    solo_text = _call_gemini(
+                        solo_prompt, system_prompt, api_key, model,
+                        max_output_tokens=_estimate_max_gemini_output_tokens(1),
+                    )
+                    solo_parsed = parse_response(solo_text)
+                    hit = None
+                    if solo_parsed:
+                        hit = next(
+                            (p for p in solo_parsed if isinstance(p, dict)
+                             and _norm_name(p.get("student_name")) == _norm_name(name)),
+                            None,
+                        )
+                        if hit is None and isinstance(solo_parsed[0], dict):
+                            hit = solo_parsed[0]
+                    if hit is not None:
+                        print(f"  Retried {name!r} individually after the batch mismatch — succeeded.")
+                        results.append(hit)
+                    else:
+                        print(f"  Retried {name!r} individually after the batch mismatch — still no usable result.")
+                        results.append(_ai_error_result(row, provider))
+                except QuotaExhaustedError as e:
+                    print(
+                        f"  {provider}'s quota is exhausted during an individual retry ({e}) — "
+                        "stopping this review now instead of retrying every remaining student."
+                    )
+                    quota_hit_during_fallback = True
+                    results.append(_quota_exhausted_result(row, provider))
+                except Exception as e:
+                    detail = str(e)
+                    resp = getattr(e, "response", None)
+                    if resp is not None:
+                        detail = f"{detail} — response body: {resp.text[:500]}"
+                    print(f"  Individual retry failed for {name!r}: {detail}")
+                    results.append(_ai_error_result(row, provider))
+        else:
+            for row in unmatched:
+                results.append(_ai_error_result(row, provider))
+
+        if quota_hit_during_fallback:
+            # Same reasoning as the top-level QuotaExhaustedError handler
+            # above: a hard quota wall won't clear for the rest of this
+            # chunk or any later chunk either, so stop the whole review
+            # here instead of continuing to grind through what's left.
+            for row in rows[start + len(chunk):]:
+                results.append(_quota_exhausted_result(row, provider))
+            if on_chunk_done:
+                try:
+                    on_chunk_done(len(results), len(rows))
+                except Exception:
+                    pass
+            return results
+
         if on_chunk_done:
             try:
                 on_chunk_done(len(results), len(rows))

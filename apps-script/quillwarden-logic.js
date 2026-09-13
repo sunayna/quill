@@ -30,27 +30,43 @@
  * the current headers before changing them here).
  *
  * BEHAVIOUR
- * - For each row, reviews the Term 2 remark if it is non-empty, otherwise falls
- *   back to the Term 1 remark for that row.
- * - Writes one output column (header from CONFIG.OUTPUT_HEADER) as the last
- *   column of the sheet — reused on repeat runs rather than duplicated.
- * - Duplicate-remark detection (H2) runs only over the set of remarks actually
- *   reviewed (i.e. each row's chosen Term 1/Term 2 remark), so it will not
- *   false-positive a student's own Term 1 remark against their own Term 2 remark.
+ * - Term 1 and Term 2 are reviewed independently, each into its own output
+ *   column (CONFIG.OUTPUT_TERM1_HEADER / OUTPUT_TERM2_HEADER) -- reviewing
+ *   one term never overwrites the other's result, so a school can review
+ *   Term 1 now and Term 2 months later without losing Term 1's record.
+ * - Each reviewed cell's Notes field (invisible in the grid) stores a JSON
+ *   blob { checksum, aiError, llmRan } -- an MD5 of the remark text, plus
+ *   whether that row's AI review completed cleanly last time. On every run,
+ *   a row is SKIPPED ENTIRELY (left exactly as it was) unless: its remark
+ *   text changed since its stored checksum, OR its last AI review didn't
+ *   complete cleanly (aiError), OR a Gemini key is set now but this row has
+ *   never actually had an AI pass (llmRan false) -- otherwise re-reviewing
+ *   every row on every run would waste Gemini's request quota on remarks
+ *   nobody touched. See reviewTermColumn_.
+ * - Duplicate-remark detection (H2) still runs across every non-blank remark
+ *   for a term on every run (it's free, deterministic, no API call) --
+ *   scoped per term, so it will not false-positive a student's own Term 1
+ *   remark against their own Term 2 remark.
  * - Deterministic and AI issues are merged per row, deduplicated by rule_id
  *   (deterministic result wins on overlap, though in practice the two layers
- *   cover disjoint rule sets).
+ *   cover disjoint rule sets). A row whose Gemini result couldn't be matched
+ *   back to it (e.g. a truncated batch reply) gets an explicit AI_ERROR
+ *   issue instead of silently showing as clean, and is retried automatically
+ *   on the next run regardless of whether its remark changed.
  */
 
 var CONFIG = {
   STUDENT_NAME_HEADER: 'Student Name',
   REMARK_TERM1_HEADER: 'Remark Term 1',
   REMARK_TERM2_HEADER: 'Remark Term 2',
-  OUTPUT_HEADER: 'Quillwarden Review',
+  // Term 1 keeps the original column name so existing sheets/data are reused
+  // as-is; Term 2 gets its own new column instead of sharing (and overwriting) it.
+  OUTPUT_TERM1_HEADER: 'Quillwarden Review',
+  OUTPUT_TERM2_HEADER: 'Quillwarden Review Term 2',
   MAX_CHARACTERS: 1000
 };
 
-var GEMINI_MODEL = 'gemini-flash-latest';
+var GEMINI_MODEL = 'gemini-flash-lite-latest';
 var GEMINI_API_KEY_PROPERTY = 'GEMINI_API_KEY';
 
 // Rule IDs already handled by the deterministic checks below (or, for J4,
@@ -61,7 +77,7 @@ var LLM_SKIP_RULE_IDS = ['I1', 'I2', 'I3', 'J1', 'J2', 'J3', 'J4', 'J5', 'K1', '
 // ── Dispatch (entry point called by the stub's runQuillwarden_) ─────────────
 
 function QuillwardenDispatch_(action) {
-  if (action === 'reviewRemarks') return reviewRemarks();
+  if (action === 'reviewRemarks') return reviewRemarks_();
   if (action === 'setGeminiKey_') return setGeminiKey_();
   if (action === 'clearGeminiKey_') return clearGeminiKey_();
   throw new Error('Unknown Quillwarden action: ' + action);
@@ -121,13 +137,15 @@ function clearGeminiKey_() {
 
 // ── Main driver ──────────────────────────────────────────────────────────────
 
-function reviewRemarks() {
+function reviewRemarks_() {
   var sheet = SpreadsheetApp.getActiveSheet();
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
   if (lastRow < 2) {
-    SpreadsheetApp.getUi().alert('No data rows found below the header row.');
-    return;
+    // Thrown, not alerted, directly from here -- Code.gs's own runQuillwarden_
+    // wrapper is what turns this into a user-facing alert, so this shared
+    // function stays UI-agnostic.
+    throw new Error('No data rows found below the header row.');
   }
 
   var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -140,86 +158,252 @@ function reviewRemarks() {
   if (term1Col === -1) missing.push(CONFIG.REMARK_TERM1_HEADER);
   if (term2Col === -1) missing.push(CONFIG.REMARK_TERM2_HEADER);
   if (missing.length) {
-    SpreadsheetApp.getUi().alert(
-      'Could not find column(s): ' + missing.join(', ') +
+    var msg = 'Could not find column(s): ' + missing.join(', ') +
       '.\n\nThe expected headers are set in CONFIG inside the shared Quillwarden logic file on Drive (found headers: ' +
-      headerRow.join(' | ') + ').'
-    );
-    return;
-  }
-
-  var outputCol = findColumn_(headerRow, CONFIG.OUTPUT_HEADER);
-  if (outputCol === -1) {
-    outputCol = lastCol + 1;
-    sheet.getRange(1, outputCol).setValue(CONFIG.OUTPUT_HEADER);
+      headerRow.join(' | ') + ').';
+    // Thrown only, same reasoning as the no-data-rows case just above.
+    throw new Error(msg);
   }
 
   var numRows = lastRow - 1;
-  var names = sheet.getRange(2, nameCol, numRows, 1).getValues();
-  var term1s = sheet.getRange(2, term1Col, numRows, 1).getValues();
-  var term2s = sheet.getRange(2, term2Col, numRows, 1).getValues();
+  var names = sheet.getRange(2, nameCol, numRows, 1).getValues().map(function (r) { return String(r[0] || '').trim(); });
+  var term1Remarks = sheet.getRange(2, term1Col, numRows, 1).getValues().map(function (r) { return String(r[0] || '').trim(); });
+  var term2Remarks = sheet.getRange(2, term2Col, numRows, 1).getValues().map(function (r) { return String(r[0] || '').trim(); });
 
-  var rows = [];
-  for (var i = 0; i < numRows; i++) {
-    var name = String(names[i][0] || '').trim();
-    var t1 = String(term1s[i][0] || '').trim();
-    var t2 = String(term2s[i][0] || '').trim();
-    var activeRemark = t2 !== '' ? t2 : t1;
-    var activeTerm = t2 !== '' ? 'Term 2' : (t1 !== '' ? 'Term 1' : null);
-    rows.push({ name: name, remark: activeRemark, term: activeTerm });
+  var apiKey = PropertiesService.getUserProperties().getProperty(GEMINI_API_KEY_PROPERTY);
+
+  var summary1 = reviewTermColumn_(sheet, names, term1Remarks, 'Term 1', CONFIG.OUTPUT_TERM1_HEADER, apiKey);
+  var summary2 = reviewTermColumn_(sheet, names, term2Remarks, 'Term 2', CONFIG.OUTPUT_TERM2_HEADER, apiKey);
+
+  var summaryText = formatRunSummaryText_(summary1, summary2, !!apiKey);
+  SpreadsheetApp.getActiveSpreadsheet().toast(summaryText, 'Quillwarden review complete', 15);
+
+  return { summary1: summary1, summary2: summary2, apiKey: !!apiKey, summaryText: summaryText };
+}
+
+function formatRunSummaryText_(summary1, summary2, hasKey) {
+  function summaryLine(label, s) {
+    var line = label + ' — reviewed: ' + s.reviewed + ', unchanged: ' + s.unchanged + ', no remark: ' + s.noRemark;
+    if (s.llmError) {
+      line += ', AI review FAILED for ' + s.llmAttempted + ' (' + s.llmError + ') — will retry next run';
+    } else if (!hasKey && s.reviewed > 0) {
+      line += ' (no Gemini key set — deterministic checks only)';
+    } else if (s.llmAttempted > 0) {
+      line += ', AI-reviewed: ' + s.llmAttempted;
+      if (s.aiErrors > 0) line += ' (' + s.aiErrors + " couldn't be matched — will retry next run)";
+    }
+    return line;
+  }
+  return summaryLine('Term 1', summary1) + '\n' + summaryLine('Term 2', summary2);
+}
+
+// A real modal progress-bar dialog was tried here and pulled back out after
+// three separate infrastructure blockers in a row: Apps Script's static
+// scope detection can't see calls made from this dynamically-loaded file
+// (fixed by moving the call into Code.gs); this project's manifest had a
+// pinned oauthScopes list that silently never got the new scope it needed
+// (fixed by editing the manifest); and even after both fixes, the dialog's
+// google.script.run channel never actually reached the server at all on the
+// test account (no error, just silence -- Apps Script's Executions log
+// showed no runReviewNow_/getReviewProgress_ calls ever happening),
+// consistent with a browser/network condition outside this code's control.
+// Progress is shown via repeated toast() calls instead (see
+// reviewTermColumn_ below) -- the exact same mechanism already used for the
+// final "review complete" toast, so it's proven to work with zero extra
+// permissions and no dialog/iframe involved at all.
+
+// Reviews one term's remark column independently: figures out which rows
+// actually need (re)reviewing this run, leaves everything else completely
+// untouched, runs deterministic checks + one batched Gemini call for just
+// the rows that need it, and writes results (plus a checksum/error note
+// used to decide next run) back into that term's own output column.
+//
+// A row needs reviewing when: it was never reviewed before, its remark text
+// changed since it was last reviewed (tracked via an MD5 checksum stored in
+// the output cell's Notes -- invisible, no extra sheet columns needed), its
+// last AI review didn't complete cleanly (aiError), or a Gemini key is set
+// now but this row has never actually had an AI pass (llmRan false). Rows
+// that meet none of those are left exactly as they were.
+// Same batch size and inter-call gap reviewer.py (the web UI's Python
+// backend) settled on: small enough to keep truncation risk low and give
+// real incremental toast updates as each chunk finishes, spaced out enough
+// to stay clear of Gemini's free-tier rolling rate limit.
+var GEMINI_CHUNK_SIZE_ = 4;
+var GEMINI_MIN_SECONDS_BETWEEN_CALLS_ = 5;
+var _lastGeminiCallAt_ = null; // reset to null every time this file is freshly loaded -- see the file-level comment at the top
+
+function paceGeminiCall_() {
+  if (_lastGeminiCallAt_ !== null) {
+    var elapsedMs = Date.now() - _lastGeminiCallAt_;
+    var remainingMs = (GEMINI_MIN_SECONDS_BETWEEN_CALLS_ * 1000) - elapsedMs;
+    if (remainingMs > 0) Utilities.sleep(remainingMs);
+  }
+}
+
+function reviewTermColumn_(sheet, names, remarks, termLabel, outputHeader, apiKey) {
+  var numRows = names.length;
+  var lastCol = sheet.getLastColumn();
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var outputCol = findColumn_(headerRow, outputHeader);
+  if (outputCol === -1) {
+    outputCol = lastCol + 1;
+    sheet.getRange(1, outputCol).setValue(outputHeader);
   }
 
-  // Per-remark deterministic checks.
-  var perRowIssues = rows.map(function (r) {
-    if (!r.remark) return [];
-    return runChecks_(r.remark);
+  var outputRange = sheet.getRange(2, outputCol, numRows, 1);
+  var existingNotes = outputRange.getNotes();
+
+  var summary = { reviewed: 0, unchanged: 0, noRemark: 0, llmAttempted: 0, llmError: null, aiErrors: 0 };
+
+  var toReview = [];
+  var checksums = [];
+  for (var i = 0; i < numRows; i++) {
+    var remark = remarks[i];
+    var stored = parseReviewNote_(existingNotes[i][0]);
+    if (!remark) {
+      checksums[i] = null;
+      if (stored) {
+        // The remark that used to be here was removed -- clear the stale
+        // review instead of leaving it looking current.
+        sheet.getRange(2 + i, outputCol).setValue('').setNote('');
+      }
+      summary.noRemark++;
+      continue;
+    }
+    checksums[i] = checksum_(remark);
+    var needsReview = !stored ||
+      stored.checksum !== checksums[i] ||
+      stored.aiError === true ||
+      (!!apiKey && !stored.llmRan);
+    if (needsReview) {
+      toReview.push(i);
+    } else {
+      summary.unchanged++;
+    }
+  }
+
+  if (!toReview.length) return summary;
+
+  var detIssuesByIndex = {};
+  toReview.forEach(function (i) {
+    detIssuesByIndex[i] = runChecks_(remarks[i]);
   });
 
-  // Cross-row duplicate check (H2 across), scoped to the remarks actually reviewed.
-  var crossIssues = checkH2Across_(
-    rows.map(function (r) { return r.remark; }),
-    rows.map(function (r) { return r.name; })
-  );
+  // Free (no API call) and scoped to this term only, so a student's own
+  // Term 1 remark is never compared against their own Term 2 remark.
+  var crossIssues = checkH2Across_(remarks, names);
 
-  // LLM judgement-based checks (tone, safeguarding, unsupported claims, etc.),
-  // run only if the current user has saved their own Gemini key.
-  var llmStatus = runLLMReviewForRows_(rows);
-  // llmStatus = { ran: bool, error: string|null, issuesByRowIndex: {index: [issue,...]} }
+  // Real-time progress for this term, shown via a toast that gets replaced
+  // as each chunk finishes -- the same toast() mechanism already used for
+  // the final "review complete" summary below, so it needs no extra
+  // permissions and doesn't depend on any dialog/client-server channel.
+  if (apiKey) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Reviewing ' + termLabel + ': 0 of ' + toReview.length + ' checked...', 'Quillwarden', 10
+    );
+  }
+  var completedSoFar_ = 0;
 
-  var counts = { NO_MAJOR_ISSUES: 0, MINOR_EDITS: 0, NEEDS_REVISION: 0, CRITICAL_ISSUE: 0, SKIPPED: 0 };
-  var outputValues = rows.map(function (r, i) {
-    if (!r.remark) {
-      counts.SKIPPED++;
-      return ['No remark to review (Term 1 and Term 2 both blank).'];
+  var llmResultsByIndex = {};
+  if (apiKey) {
+    for (var chunkStart_ = 0; chunkStart_ < toReview.length; chunkStart_ += GEMINI_CHUNK_SIZE_) {
+      var chunkIndices_ = toReview.slice(chunkStart_, chunkStart_ + GEMINI_CHUNK_SIZE_);
+      var entries = chunkIndices_.map(function (i) {
+        return { index: i, name: names[i] || ('Row ' + (i + 2)), remark: remarks[i] };
+      });
+      summary.llmAttempted += entries.length;
+      paceGeminiCall_();
+      try {
+        var prompt = buildLLMPrompt_(entries, LLM_SKIP_RULE_IDS);
+        _lastGeminiCallAt_ = Date.now();
+        var responseText = callGemini_(prompt, apiKey);
+        var results = parseLLMResponse_(responseText);
+        var resultsByName = {};
+        results.forEach(function (res) { if (res && res.student_name) resultsByName[res.student_name] = res; });
+        // Positional fallback, same as reviewer.py: if the reply has exactly
+        // as many entries as were sent but a name doesn't match exactly, trust
+        // the order rather than treating a cosmetic mismatch as a failure.
+        var positionalOk = results.length === entries.length;
+        entries.forEach(function (entry, pos) {
+          var res = resultsByName[entry.name];
+          if (!res && positionalOk && results[pos] && typeof results[pos] === 'object') res = results[pos];
+          llmResultsByIndex[entry.index] = res ? { issues: res.issues || [], matched: true } : { issues: [], matched: false };
+        });
+      } catch (e) {
+        var message = e && e.message ? e.message : String(e);
+        summary.llmError = message;
+        console.error('Quillwarden LLM review failed for ' + termLabel + ' (chunk starting at ' + chunkStart_ + '): ' + message);
+        entries.forEach(function (entry) {
+          llmResultsByIndex[entry.index] = { issues: [], matched: false };
+        });
+      }
+      completedSoFar_ += entries.length;
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        'Reviewing ' + termLabel + ': ' + completedSoFar_ + ' of ' + toReview.length + ' checked...', 'Quillwarden', 10
+      );
     }
-    var detIssues = perRowIssues[i].concat(crossIssues[i]);
-    var llmIssues = llmStatus.issuesByRowIndex[i] || [];
+  } else if (toReview.length) {
+    // No key -- deterministic-only, no Gemini calls, so this finishes almost
+    // instantly. Not worth a toast of its own; the final summary toast below
+    // covers it.
+    completedSoFar_ = toReview.length;
+  }
+
+  toReview.forEach(function (i) {
+    var detIssues = detIssuesByIndex[i].concat(crossIssues[i]);
+    var llmResult = llmResultsByIndex[i];
+    var llmIssues, aiError;
+    if (!apiKey) {
+      llmIssues = [];
+      aiError = false;
+    } else if (llmResult && llmResult.matched) {
+      llmIssues = llmResult.issues;
+      aiError = false;
+    } else {
+      aiError = true;
+      summary.aiErrors++;
+      llmIssues = [issue_('AI_ERROR', 'warning', '',
+        'AI review could not be completed for this remark this time' + (summary.llmError ? ': ' + summary.llmError : '.'),
+        'Run "Review Remarks" again to retry AI review for this student.')];
+    }
     var allIssues = mergeIssuesByRuleId_(detIssues, llmIssues);
     var statusLabel = statusLabelFromIssues_(allIssues);
-    counts[statusLabel.replace(/ /g, '_')] = (counts[statusLabel.replace(/ /g, '_')] || 0) + 1;
-    return [formatCell_(statusLabel, r.term, r.remark.length, allIssues)];
+    var cell = sheet.getRange(2 + i, outputCol);
+    cell.setValue(formatCell_(statusLabel, termLabel, remarks[i].length, allIssues));
+    cell.setNote(buildReviewNote_(checksums[i], aiError, !!apiKey));
+    summary.reviewed++;
   });
 
-  sheet.getRange(2, outputCol, numRows, 1).setValues(outputValues);
+  return summary;
+}
 
-  var aiNote;
-  if (llmStatus.ran) {
-    aiNote = 'AI review: included.';
-  } else if (llmStatus.error) {
-    aiNote = 'AI review: FAILED (' + llmStatus.error + ') — showing deterministic checks only.';
-  } else {
-    aiNote = 'AI review: skipped — no Gemini key set (Quillwarden > Set My Gemini Key).';
+// MD5 hex digest of a remark's text, used to detect whether it changed since
+// its last review (see reviewTermColumn_). Cheap and built into Apps
+// Script's Utilities service -- no external library needed. (Google's own
+// docs note computeDigest returns signed bytes; the +256 below converts
+// each back to its unsigned value before formatting as hex.)
+function checksum_(text) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text, Utilities.Charset.UTF_8);
+  return bytes.map(function (b) {
+    var v = b < 0 ? b + 256 : b;
+    var hex = v.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function parseReviewNote_(noteText) {
+  if (!noteText) return null;
+  try {
+    var parsed = JSON.parse(noteText);
+    if (parsed && typeof parsed.checksum === 'string') return parsed;
+  } catch (e) {
+    // Not a note Quillwarden wrote (or it's corrupted) -- treat as unreviewed.
   }
+  return null;
+}
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    'No major issues: ' + counts.NO_MAJOR_ISSUES +
-    ' | Minor edits: ' + counts.MINOR_EDITS +
-    ' | Needs revision: ' + counts.NEEDS_REVISION +
-    ' | Critical: ' + counts.CRITICAL_ISSUE +
-    ' | Skipped: ' + counts.SKIPPED +
-    '  —  ' + aiNote,
-    'Quillwarden review complete', 12
-  );
+function buildReviewNote_(checksum, aiError, llmRan) {
+  return JSON.stringify({ checksum: checksum, aiError: !!aiError, llmRan: !!llmRan });
 }
 
 function mergeIssuesByRuleId_(detIssues, llmIssues) {
@@ -624,50 +808,12 @@ function checkH2Across_(remarks, studentNames) {
 
 // ── LLM review (judgement-based rules) ───────────────────────────────────────
 //
-// Mirrors llm-reviewer/reviewer.py: one batched Gemini call per run covering
-// every remark, using the full rubric and system prompt as authoritative
-// input. Uses the current user's own saved key (PropertiesService
-// UserProperties), so each teacher's usage is separate and private.
-
-function runLLMReviewForRows_(rows) {
-  var apiKey = PropertiesService.getUserProperties().getProperty(GEMINI_API_KEY_PROPERTY);
-  if (!apiKey) {
-    return { ran: false, error: null, issuesByRowIndex: {} };
-  }
-
-  var entries = []; // { index: original row index, name: label used in the prompt }
-  rows.forEach(function (r, i) {
-    if (!r.remark) return;
-    var label = r.name || ('Row ' + (entries.length + 1));
-    entries.push({ index: i, name: label, remark: r.remark });
-  });
-
-  if (!entries.length) {
-    return { ran: false, error: null, issuesByRowIndex: {} };
-  }
-
-  try {
-    var prompt = buildLLMPrompt_(entries, LLM_SKIP_RULE_IDS);
-    var responseText = callGemini_(prompt, apiKey);
-    var results = parseLLMResponse_(responseText);
-
-    var resultsByName = {};
-    results.forEach(function (res) {
-      if (res && res.student_name) resultsByName[res.student_name] = res;
-    });
-
-    var issuesByRowIndex = {};
-    entries.forEach(function (entry) {
-      var res = resultsByName[entry.name];
-      issuesByRowIndex[entry.index] = (res && res.issues) || [];
-    });
-
-    return { ran: true, error: null, issuesByRowIndex: issuesByRowIndex };
-  } catch (e) {
-    console.error('Quillwarden LLM review failed: ' + (e.message || String(e)));
-    return { ran: false, error: e.message || String(e), issuesByRowIndex: {} };
-  }
-}
+// Mirrors llm-reviewer/reviewer.py. The actual per-term batched Gemini call
+// (deciding which rows to send, matching results back to the right student,
+// and marking any that couldn't be matched as AI_ERROR) lives in
+// reviewTermColumn_ above, since which rows need reviewing is itself decided
+// per term. buildLLMPrompt_ / parseLLMResponse_ / callGemini_ below are the
+// shared, stateless pieces of that.
 
 function buildLLMPrompt_(entries, skipRuleIds) {
   var trimmedCategories = RUBRIC.categories.filter(function (c) {
@@ -713,6 +859,28 @@ function parseLLMResponse_(text) {
   return [];
 }
 
+var HARD_QUOTA_RETRY_CEILING_SECONDS_ = 120;
+
+function extractRetryDelaySeconds_(bodyText) {
+  var data;
+  try { data = JSON.parse(bodyText); } catch (e) { return null; }
+  var err = (data && data.error) || {};
+  var details = err.details || [];
+  for (var i = 0; i < details.length; i++) {
+    var raw = details[i].retryDelay;
+    if (raw && /s$/.test(raw)) {
+      var n = parseFloat(raw);
+      if (!isNaN(n)) return n;
+    }
+  }
+  var m = /retry in ([\d.]+)\s*s/i.exec(err.message || '');
+  if (m) {
+    var n2 = parseFloat(m[1]);
+    if (!isNaN(n2)) return n2;
+  }
+  return null;
+}
+
 function callGemini_(prompt, apiKey) {
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
     GEMINI_MODEL + ':generateContent?key=' + encodeURIComponent(apiKey);
@@ -730,7 +898,7 @@ function callGemini_(prompt, apiKey) {
     muteHttpExceptions: true
   };
 
-  var maxAttempts = 3;
+  var maxAttempts = 5;
   for (var attempt = 0; attempt < maxAttempts; attempt++) {
     var response = UrlFetchApp.fetch(url, options);
     var code = response.getResponseCode();
@@ -743,7 +911,19 @@ function callGemini_(prompt, apiKey) {
       return data.candidates[0].content.parts[0].text;
     }
 
-    if (code === 429 || (code >= 500 && code < 600)) {
+    if (code === 429) {
+      var bodyText429 = response.getContentText();
+      var retryDelay = extractRetryDelaySeconds_(bodyText429);
+      var isHardWall = retryDelay === null || retryDelay > HARD_QUOTA_RETRY_CEILING_SECONDS_;
+      if (!isHardWall && attempt < maxAttempts - 1) {
+        Utilities.sleep((retryDelay + 1) * 1000);
+        continue;
+      }
+      console.error('Gemini API error 429 — full body: ' + bodyText429);
+      throw new Error('Gemini API error 429: ' + bodyText429.slice(0, 500));
+    }
+
+    if (code >= 500 && code < 600) {
       if (attempt < maxAttempts - 1) {
         Utilities.sleep(3000 * Math.pow(2, attempt));
         continue;
@@ -1278,41 +1458,6 @@ var RUBRIC = {
       "exceptions": [],
       "examples": {},
       "teacher_message": "Simplify sentence structure or reduce repetition/adjective density."
-    },
-    {
-      "id": "L1",
-      "section": "Closing Statements",
-      "title": "Preferred closing",
-      "severity": "warning",
-      "policy": "The closing should be brief, professional and restrained. A closing is required only if settings.require_closing is true.",
-      "detection": {"type": "phrase_match", "preferred_examples": [
-        "With continued effort, she is well placed to make steady progress.",
-        "Regular practice will support his continued development.",
-        "We wish her well for Grade 7.",
-        "We wish him continued progress in the next academic year."
-      ]},
-      "exceptions": ["settings.require_closing is false"],
-      "examples": {},
-      "teacher_message": "Add a brief, restrained closing statement."
-    },
-    {
-      "id": "L2",
-      "section": "Closing Statements",
-      "title": "Avoid",
-      "severity": "warning",
-      "policy": "Avoid effusive or promotional closings.",
-      "detection": {"type": "phrase_match", "terms": [
-        "Keep shining!",
-        "Make everyone proud!",
-        "Reach greater heights!",
-        "He will certainly excel!",
-        "She is destined for success!",
-        "Unlock your brilliance!",
-        "We look forward to seeing you become a star!"
-      ]},
-      "exceptions": [],
-      "examples": {},
-      "teacher_message": "Replace with a restrained closing from the preferred list."
     }
   ],
 
