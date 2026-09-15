@@ -955,7 +955,7 @@ var RUBRIC = {
   "settings": {
     "allow_strengths_only": false,
     "require_growth_point": true,
-    "require_closing": true,
+    "require_closing": false,
     "max_characters_including_spaces_and_line_breaks": 1000,
     "line_breaks_count_as_characters": true,
     "preferred_language_variant": "British Indian English",
@@ -963,7 +963,6 @@ var RUBRIC = {
     "teacher_makes_final_revision": true,
     "pronouns_must_be_verified_against_roster": true,
     "subject_capitalisation_style": "configurable_by_school",
-    "sport_capitalisation_style": "configurable_by_school",
     "screen_time_reporting_authorised": false,
     "e3_directive_repeat_threshold": 3
   },
@@ -1475,7 +1474,7 @@ var RUBRIC = {
     "Language is professional and non-judgemental",
     "No exaggerated or promotional language",
     "No contradictions or repeated sentences",
-    "School programmes, subjects, sports and roles are written per the school's configured style",
+    "School programmes, subjects and roles are written per the school's configured style",
     "Spelling, grammar, punctuation and spacing have been checked",
     "Remark is within the character limit, including line breaks",
     "Closing is present (if required) and is brief and professional",
